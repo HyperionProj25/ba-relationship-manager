@@ -152,11 +152,11 @@ export default function InteractionForm({ interaction, preselectedContactId, onS
         )}
       </div>
 
-      <div className="flex justify-end gap-3 pt-2">
-        <button type="button" onClick={onCancel} className="px-4 py-2 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary bg-dark-elevated hover:bg-surface transition-colors">
+      <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3 pt-2">
+        <button type="button" onClick={onCancel} className="px-4 py-3 sm:py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary bg-dark-elevated hover:bg-surface transition-colors">
           Cancel
         </button>
-        <button type="submit" disabled={saving} className="px-4 py-2 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors disabled:opacity-50">
+        <button type="submit" disabled={saving} className="px-4 py-3 sm:py-2.5 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors disabled:opacity-50">
           {saving ? 'Saving...' : interaction ? 'Update Interaction' : 'Log Interaction'}
         </button>
       </div>

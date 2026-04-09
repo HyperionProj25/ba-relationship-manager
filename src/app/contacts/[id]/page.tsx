@@ -33,7 +33,8 @@ export default function ContactDetailPage() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchData() }, [id])
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- client-side Supabase fetch on param change
+  useEffect(() => { fetchData(); }, [id])
 
   const handleDelete = async () => {
     setDeleting(true)
@@ -69,14 +70,14 @@ export default function ContactDetailPage() {
           <h1 className="text-2xl font-bold">{contact.name}</h1>
           {contact.organization && <p className="text-text-secondary mt-1">{contact.organization}{contact.role ? ` — ${contact.role}` : ''}</p>}
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setShowInteractionModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
+          <button onClick={() => setShowInteractionModal(true)} className="px-4 py-2.5 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors">
             + Log Interaction
           </button>
-          <button onClick={() => setShowEditModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-dark-elevated text-text-primary border border-border hover:bg-surface transition-colors">
+          <button onClick={() => setShowEditModal(true)} className="px-4 py-2.5 rounded-lg text-sm font-medium bg-dark-elevated text-text-primary border border-border hover:bg-surface transition-colors">
             Edit
           </button>
-          <button onClick={() => setShowDeleteModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-danger-dim text-danger border border-danger/30 hover:bg-danger hover:text-white transition-colors">
+          <button onClick={() => setShowDeleteModal(true)} className="px-4 py-2.5 rounded-lg text-sm font-medium bg-danger-dim text-danger border border-danger/30 hover:bg-danger hover:text-white transition-colors">
             Delete
           </button>
         </div>

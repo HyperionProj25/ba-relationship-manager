@@ -35,3 +35,9 @@ export interface Interaction {
 export interface InteractionWithContact extends Interaction {
   contacts: Pick<Contact, 'id' | 'name' | 'organization'>
 }
+
+export interface ContactWithCadence extends Contact {
+  daysSinceLastInteraction: number
+  lastInteractionDate: string | null
+  lastInteractionType: InteractionType | null
+}

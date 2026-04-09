@@ -22,7 +22,8 @@ export default function FollowUpsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchFollowUps() }, [])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- client-side Supabase fetch on mount
+  useEffect(() => { fetchFollowUps(); }, [])
 
   const today = new Date().toISOString().split('T')[0]
 
@@ -118,7 +119,7 @@ export default function FollowUpsPage() {
                 {effectiveStatus !== 'Done' && (
                   <button
                     onClick={() => markDone(i.id)}
-                    className="shrink-0 px-3 py-1.5 rounded-lg text-xs font-medium bg-success-dim text-success hover:bg-success hover:text-white border border-success/30 transition-colors"
+                    className="shrink-0 px-4 py-2.5 sm:px-3 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium bg-success-dim text-success hover:bg-success hover:text-white border border-success/30 transition-colors"
                   >
                     Mark Done
                   </button>

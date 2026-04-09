@@ -35,7 +35,8 @@ export default function InteractionDetailPage() {
     setLoading(false)
   }
 
-  useEffect(() => { fetchData() }, [id])
+  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- client-side Supabase fetch on param change
+  useEffect(() => { fetchData(); }, [id])
 
   const handleDelete = async () => {
     setDeleting(true)
@@ -76,11 +77,11 @@ export default function InteractionDetailPage() {
             </p>
           )}
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setShowEditModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-dark-elevated text-text-primary border border-border hover:bg-surface transition-colors">
+        <div className="flex flex-wrap gap-2 sm:gap-3">
+          <button onClick={() => setShowEditModal(true)} className="px-4 py-2.5 rounded-lg text-sm font-medium bg-dark-elevated text-text-primary border border-border hover:bg-surface transition-colors">
             Edit
           </button>
-          <button onClick={() => setShowDeleteModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-danger-dim text-danger border border-danger/30 hover:bg-danger hover:text-white transition-colors">
+          <button onClick={() => setShowDeleteModal(true)} className="px-4 py-2.5 rounded-lg text-sm font-medium bg-danger-dim text-danger border border-danger/30 hover:bg-danger hover:text-white transition-colors">
             Delete
           </button>
         </div>

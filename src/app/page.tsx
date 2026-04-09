@@ -1,142 +1,166 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { daysSinceDate, cadenceColor, cadenceZone } from '@/lib/cadence'
+import type { CadenceZone } from '@/lib/cadence'
 import Modal from '@/components/Modal'
 import ContactForm from '@/components/ContactForm'
 import InteractionForm from '@/components/InteractionForm'
-import type { InteractionWithContact } from '@/types'
+import CadenceCard from '@/components/CadenceCard'
+import type { Contact, ContactWithCadence, ContactCategory, InteractionType } from '@/types'
 
-interface DashboardStats {
-  totalContacts: number
-  interactionsThisWeek: number
-  pendingFollowUps: number
-  overdueFollowUps: number
-}
+const CATEGORIES: (ContactCategory | 'All')[] = ['All', 'MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
+
+type SortOption = 'urgent' | 'recent' | 'name' | 'category'
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats>({ totalContacts: 0, interactionsThisWeek: 0, pendingFollowUps: 0, overdueFollowUps: 0 })
-  const [upcomingFollowUps, setUpcomingFollowUps] = useState<InteractionWithContact[]>([])
-  const [recentInteractions, setRecentInteractions] = useState<InteractionWithContact[]>([])
+  const [contacts, setContacts] = useState<ContactWithCadence[]>([])
+  const [category, setCategory] = useState<ContactCategory | 'All'>('All')
+  const [sortBy, setSortBy] = useState<SortOption>('urgent')
   const [showContactModal, setShowContactModal] = useState(false)
   const [showInteractionModal, setShowInteractionModal] = useState(false)
   const [loading, setLoading] = useState(true)
 
   const fetchDashboard = async () => {
-    const today = new Date().toISOString().split('T')[0]
-    const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-
-    const [contactsRes, weekInteractionsRes, pendingRes, overdueRes, upcomingRes, recentRes] = await Promise.all([
-      supabase.from('contacts').select('id', { count: 'exact', head: true }),
-      supabase.from('interactions').select('id', { count: 'exact', head: true }).gte('date', weekAgo),
-      supabase.from('interactions').select('id', { count: 'exact', head: true }).eq('follow_up_needed', true).eq('status', 'Pending').gte('follow_up_date', today),
-      supabase.from('interactions').select('id', { count: 'exact', head: true }).eq('follow_up_needed', true).eq('status', 'Pending').lt('follow_up_date', today),
-      supabase.from('interactions').select('*, contacts(id, name, organization)').eq('follow_up_needed', true).eq('status', 'Pending').gte('follow_up_date', today).order('follow_up_date', { ascending: true }).limit(7),
-      supabase.from('interactions').select('*, contacts(id, name, organization)').order('date', { ascending: false }).limit(7),
+    const [contactsRes, interactionsRes] = await Promise.all([
+      supabase.from('contacts').select('*'),
+      supabase.from('interactions').select('contact_id, date, type').order('date', { ascending: false }),
     ])
 
-    setStats({
-      totalContacts: contactsRes.count ?? 0,
-      interactionsThisWeek: weekInteractionsRes.count ?? 0,
-      pendingFollowUps: (pendingRes.count ?? 0) + (overdueRes.count ?? 0),
-      overdueFollowUps: overdueRes.count ?? 0,
+    const latestByContact = new Map<string, { date: string; type: InteractionType }>()
+    for (const row of (interactionsRes.data ?? []) as { contact_id: string; date: string; type: InteractionType }[]) {
+      if (!latestByContact.has(row.contact_id)) {
+        latestByContact.set(row.contact_id, { date: row.date, type: row.type })
+      }
+    }
+
+    const enriched: ContactWithCadence[] = ((contactsRes.data ?? []) as Contact[]).map(c => {
+      const latest = latestByContact.get(c.id)
+      return {
+        ...c,
+        daysSinceLastInteraction: daysSinceDate(latest?.date ?? null),
+        lastInteractionDate: latest?.date ?? null,
+        lastInteractionType: latest?.type ?? null,
+      }
     })
-    setUpcomingFollowUps((upcomingRes.data ?? []) as unknown as InteractionWithContact[])
-    setRecentInteractions((recentRes.data ?? []) as unknown as InteractionWithContact[])
+
+    setContacts(enriched)
     setLoading(false)
   }
 
-  useEffect(() => { fetchDashboard() }, [])
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- client-side Supabase fetch on mount
+  useEffect(() => { fetchDashboard(); }, [])
+
+  const zoneCounts: Record<CadenceZone, number> = { green: 0, yellow: 0, red: 0 }
+  for (const c of contacts) {
+    zoneCounts[cadenceZone(c.daysSinceLastInteraction)]++
+  }
+
+  const displayed = contacts
+    .filter(c => category === 'All' || c.category === category)
+    .sort((a, b) => {
+      switch (sortBy) {
+        case 'urgent': {
+          const aDays = isFinite(a.daysSinceLastInteraction) ? a.daysSinceLastInteraction : 99999
+          const bDays = isFinite(b.daysSinceLastInteraction) ? b.daysSinceLastInteraction : 99999
+          return bDays - aDays
+        }
+        case 'recent': {
+          const aDays = isFinite(a.daysSinceLastInteraction) ? a.daysSinceLastInteraction : 99999
+          const bDays = isFinite(b.daysSinceLastInteraction) ? b.daysSinceLastInteraction : 99999
+          return aDays - bDays
+        }
+        case 'name':
+          return a.name.localeCompare(b.name)
+        case 'category':
+          return a.category.localeCompare(b.category) || a.name.localeCompare(b.name)
+      }
+    })
 
   const statCards = [
-    { label: 'Total Contacts', value: stats.totalContacts, color: 'text-gold' },
-    { label: 'Interactions This Week', value: stats.interactionsThisWeek, color: 'text-gold' },
-    { label: 'Pending Follow-Ups', value: stats.pendingFollowUps, color: 'text-gold' },
-    { label: 'Overdue Follow-Ups', value: stats.overdueFollowUps, color: stats.overdueFollowUps > 0 ? 'text-danger' : 'text-gold', bg: stats.overdueFollowUps > 0 ? 'bg-danger-dim border-danger/30' : '' },
+    { label: 'Total Contacts', value: contacts.length, color: 'text-gold' },
+    { label: 'Green (≤5d)', value: zoneCounts.green, colorStyle: cadenceColor(0) },
+    { label: 'Yellow (6-10d)', value: zoneCounts.yellow, colorStyle: cadenceColor(8) },
+    { label: 'Red (11d+)', value: zoneCounts.red, colorStyle: cadenceColor(14) },
   ]
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <p className="text-[11px] font-medium text-gold uppercase tracking-widest mb-1">Overview</p>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
+          <p className="text-[11px] font-medium text-gold uppercase tracking-widest mb-1">Outreach Health</p>
+          <h1 className="text-2xl font-bold">Contact Cadence</h1>
         </div>
-        <div className="flex gap-3">
-          <button onClick={() => setShowContactModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors">
+        <div className="flex gap-2 sm:gap-3">
+          <button onClick={() => setShowContactModal(true)} className="flex-1 sm:flex-none px-4 py-2.5 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors">
             + Add Contact
           </button>
-          <button onClick={() => setShowInteractionModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-dark-elevated text-text-primary border border-border hover:bg-surface transition-colors">
+          <button onClick={() => setShowInteractionModal(true)} className="flex-1 sm:flex-none px-4 py-2.5 rounded-lg text-sm font-medium bg-dark-elevated text-text-primary border border-border hover:bg-surface transition-colors">
             + Log Interaction
           </button>
         </div>
       </div>
 
-      {/* Stat Cards */}
+      {/* Summary Stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {statCards.map(card => (
-          <div key={card.label} className={`rounded-xl border border-border p-5 ${card.bg || 'bg-dark-card'} border-l-2 border-l-gold/30`}>
+          <div key={card.label} className="rounded-xl border border-border p-5 bg-dark-card border-l-2 border-l-gold/30">
             <p className="text-[11px] font-medium text-text-muted uppercase tracking-widest mb-2">{card.label}</p>
-            <p className={`text-3xl font-bold font-[family-name:var(--font-mono-space)] ${card.color}`}>{card.value}</p>
+            <p
+              className={`text-3xl font-bold font-[family-name:var(--font-mono-space)] ${card.color ?? ''}`}
+              style={card.colorStyle ? { color: card.colorStyle } : undefined}
+            >
+              {card.value}
+            </p>
           </div>
         ))}
       </div>
 
-      {/* Two-column layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Upcoming Follow-Ups */}
-        <div className="bg-dark-card border border-border rounded-xl">
-          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-            <h2 className="font-semibold">Upcoming Follow-Ups</h2>
-            <Link href="/follow-ups" className="text-sm text-gold hover:text-gold-hover transition-colors">View all</Link>
-          </div>
-          <div className="divide-y divide-border">
-            {upcomingFollowUps.length === 0 ? (
-              <p className="px-5 py-8 text-center text-text-muted text-sm">No upcoming follow-ups</p>
-            ) : upcomingFollowUps.map(item => (
-              <Link key={item.id} href={`/interactions/${item.id}`} className="block px-5 py-3 hover:bg-dark-elevated transition-colors">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{item.contacts?.name}</p>
-                    <p className="text-sm text-text-secondary truncate">{item.follow_up_action || item.summary}</p>
-                  </div>
-                  <span className="text-xs text-text-muted whitespace-nowrap">{item.follow_up_date}</span>
-                </div>
-              </Link>
-            ))}
-          </div>
+      {/* Filters & Sort */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex gap-1 flex-wrap flex-1">
+          {CATEGORIES.map(cat => (
+            <button
+              key={cat}
+              onClick={() => setCategory(cat)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                category === cat
+                  ? 'bg-gold text-black'
+                  : 'bg-dark-card text-text-secondary border border-border hover:bg-dark-elevated'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
-
-        {/* Recent Interactions */}
-        <div className="bg-dark-card border border-border rounded-xl">
-          <div className="px-5 py-4 border-b border-border flex items-center justify-between">
-            <h2 className="font-semibold">Recent Interactions</h2>
-            <Link href="/interactions" className="text-sm text-gold hover:text-gold-hover transition-colors">View all</Link>
-          </div>
-          <div className="divide-y divide-border">
-            {recentInteractions.length === 0 ? (
-              <p className="px-5 py-8 text-center text-text-muted text-sm">No interactions yet</p>
-            ) : recentInteractions.map(item => (
-              <Link key={item.id} href={`/interactions/${item.id}`} className="block px-5 py-3 hover:bg-dark-elevated transition-colors">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{item.contacts?.name}</p>
-                    <p className="text-sm text-text-secondary truncate">{item.summary}</p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <span className="inline-block px-2 py-0.5 rounded text-xs bg-surface text-text-secondary">{item.type}</span>
-                    <p className="text-xs text-text-muted mt-1">{item.date}</p>
-                  </div>
-                </div>
-              </Link>
-            ))}
-          </div>
-        </div>
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value as SortOption)}
+          className="bg-dark-card border border-border rounded-lg px-3 py-1.5 text-xs font-medium text-text-secondary focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-colors"
+        >
+          <option value="urgent">Most Urgent</option>
+          <option value="recent">Most Recent</option>
+          <option value="name">Name A-Z</option>
+          <option value="category">Category</option>
+        </select>
       </div>
+
+      {/* Card Grid */}
+      {displayed.length === 0 ? (
+        <div className="bg-dark-card border border-border rounded-xl px-6 py-12 text-center text-text-muted">
+          No contacts found
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          {displayed.map(contact => (
+            <CadenceCard key={contact.id} contact={contact} />
+          ))}
+        </div>
+      )}
 
       {/* Modals */}
       <Modal open={showContactModal} onClose={() => setShowContactModal(false)} title="Add Contact" wide>
