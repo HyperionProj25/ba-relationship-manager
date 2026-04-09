@@ -10,6 +10,7 @@ const navItems = [
   { label: 'Contacts', href: '/contacts' },
   { label: 'Interactions', href: '/interactions' },
   { label: 'Follow-Ups', href: '/follow-ups' },
+  { label: 'Present', href: '/present' },
 ]
 
 export default function Navbar() {
