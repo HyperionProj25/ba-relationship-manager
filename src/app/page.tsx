@@ -8,9 +8,8 @@ import Modal from '@/components/Modal'
 import ContactForm from '@/components/ContactForm'
 import InteractionForm from '@/components/InteractionForm'
 import CadenceCard from '@/components/CadenceCard'
+import { allCategories } from '@/lib/categories'
 import type { Contact, ContactWithCadence, ContactCategory, InteractionType } from '@/types'
-
-const CATEGORIES: (ContactCategory | 'All')[] = ['All', 'MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
 
 type SortOption = 'urgent' | 'recent' | 'name' | 'category'
 
@@ -56,6 +55,8 @@ export default function Dashboard() {
   for (const c of contacts) {
     zoneCounts[cadenceZone(c.daysSinceLastInteraction)]++
   }
+
+  const categoryOptions: (ContactCategory | 'All')[] = ['All', ...allCategories(contacts)]
 
   const displayed = contacts
     .filter(c => category === 'All' || c.category === category)
@@ -123,7 +124,7 @@ export default function Dashboard() {
       {/* Filters & Sort */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex gap-1 flex-wrap flex-1">
-          {CATEGORIES.map(cat => (
+          {categoryOptions.map(cat => (
             <button
               key={cat}
               onClick={() => setCategory(cat)}

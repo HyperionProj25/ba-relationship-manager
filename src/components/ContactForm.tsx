@@ -1,10 +1,10 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Contact, ContactCategory, TouchType, Priority } from '@/types'
+import { allCategories } from '@/lib/categories'
+import type { Contact, TouchType, Priority } from '@/types'
 
-const CATEGORIES: ContactCategory[] = ['MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
 const TOUCH_TYPES: TouchType[] = ['Direct', 'Indirect']
 const PRIORITIES: Priority[] = ['High', 'Medium', 'Low']
 
@@ -21,7 +21,7 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
     role: contact?.role ?? '',
     email: contact?.email ?? '',
     phone: contact?.phone ?? '',
-    category: contact?.category ?? 'Other' as ContactCategory,
+    category: contact?.category ?? 'Other',
     linkedin: contact?.linkedin ?? '',
     notes: contact?.notes ?? '',
     relationship_owner: contact?.relationship_owner ?? '',
@@ -30,10 +30,21 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    let cancelled = false
+    supabase.from('contacts').select('category').then(({ data }) => {
+      if (cancelled) return
+      setCategoryOptions(allCategories((data ?? []) as { category: string }[]))
+    })
+    return () => { cancelled = true }
+  }, [])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
+    if (!form.category.trim()) { setError('Category is required'); return }
     setSaving(true)
     setError('')
 
@@ -43,7 +54,7 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
       role: form.role.trim() || null,
       email: form.email.trim() || null,
       phone: form.phone.trim() || null,
-      category: form.category,
+      category: form.category.trim(),
       linkedin: form.linkedin.trim() || null,
       notes: form.notes.trim() || null,
       relationship_owner: form.relationship_owner.trim() || null,
@@ -97,9 +108,16 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-text-secondary mb-1">Category *</label>
-          <select className={inputClass} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as ContactCategory }))}>
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
+          <input
+            list="contact-category-options"
+            className={inputClass}
+            value={form.category}
+            onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+            placeholder="e.g. Baseline, Investor"
+          />
+          <datalist id="contact-category-options">
+            {categoryOptions.map(c => <option key={c} value={c} />)}
+          </datalist>
         </div>
         <div>
           <label className="block text-sm font-medium text-text-secondary mb-1">Touch Type</label>

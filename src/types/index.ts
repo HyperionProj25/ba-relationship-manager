@@ -1,4 +1,4 @@
-export type ContactCategory = 'MLB' | 'Investor' | 'IAB' | 'Partner' | 'Vendor' | 'University' | 'Other'
+export type ContactCategory = string
 
 export type InteractionType = 'Call' | 'Email' | 'Meeting' | 'Text' | 'LinkedIn' | 'In-Person'
 

@@ -5,9 +5,8 @@ import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
 import Modal from '@/components/Modal'
 import ContactForm from '@/components/ContactForm'
+import { allCategories } from '@/lib/categories'
 import type { Contact, ContactCategory } from '@/types'
-
-const CATEGORIES: (ContactCategory | 'All')[] = ['All', 'MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
 
 type SortKey = 'name' | 'organization' | 'category' | 'created_at'
 
@@ -48,6 +47,8 @@ export default function ContactsPage() {
     else { setSortKey(key); setSortAsc(true) }
   }
 
+  const categoryOptions: (ContactCategory | 'All')[] = ['All', ...allCategories(contacts)]
+
   const filtered = contacts
     .filter(c => {
       const q = search.toLowerCase()
@@ -84,7 +85,7 @@ export default function ContactsPage() {
           onChange={e => setSearch(e.target.value)}
         />
         <div className="flex gap-1 flex-wrap">
-          {CATEGORIES.map(cat => (
+          {categoryOptions.map(cat => (
             <button
               key={cat}
               onClick={() => setCategory(cat)}

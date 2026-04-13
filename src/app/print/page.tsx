@@ -2,9 +2,9 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { allCategories } from '@/lib/categories'
 import type { Contact, ContactCategory, Priority } from '@/types'
 
-const CATEGORIES: (ContactCategory | 'All')[] = ['All', 'MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
 const PRIORITY_ORDER: Record<Priority, number> = { High: 0, Medium: 1, Low: 2 }
 
 type LatestByContact = Map<string, { date: string; summary: string }>
@@ -90,6 +90,8 @@ export default function PrintPage() {
     return counts
   }, [contacts, category])
 
+  const categoryOptions: (ContactCategory | 'All')[] = ['All', ...allCategories(contacts)]
+
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
 
   const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
@@ -113,7 +115,7 @@ export default function PrintPage() {
 
       <div className="print:hidden flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex gap-1 flex-wrap flex-1">
-          {CATEGORIES.map(cat => (
+          {categoryOptions.map(cat => (
             <button
               key={cat}
               onClick={() => setCategory(cat)}

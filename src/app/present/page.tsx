@@ -4,9 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { daysSinceDate, cadenceColor, cadenceLabel } from '@/lib/cadence'
 import PresentationSlide from '@/components/PresentationSlide'
+import { allCategories } from '@/lib/categories'
 import type { Contact, ContactWithCadence, ContactCategory, Interaction, InteractionType } from '@/types'
-
-const CATEGORIES: (ContactCategory | 'All')[] = ['All', 'MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
 
 export default function PresentPage() {
   const [contacts, setContacts] = useState<ContactWithCadence[]>([])
@@ -55,6 +54,7 @@ export default function PresentPage() {
   useEffect(() => { fetchContacts(); }, [])
 
   const filtered = contacts.filter(c => category === 'All' || c.category === category)
+  const categoryOptions: (ContactCategory | 'All')[] = ['All', ...allCategories(contacts)]
 
   const toggleContact = (id: string) => {
     setSelected(prev => {
@@ -248,7 +248,7 @@ export default function PresentPage() {
       {/* Category filter + select all */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">
         <div className="flex gap-1 flex-wrap flex-1">
-          {CATEGORIES.map(cat => (
+          {categoryOptions.map(cat => (
             <button
               key={cat}
               onClick={() => setCategory(cat)}
