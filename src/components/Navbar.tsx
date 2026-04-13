@@ -11,6 +11,7 @@ const navItems = [
   { label: 'Interactions', href: '/interactions' },
   { label: 'Follow-Ups', href: '/follow-ups' },
   { label: 'Present', href: '/present' },
+  { label: 'Print', href: '/print' },
 ]
 
 export default function Navbar() {

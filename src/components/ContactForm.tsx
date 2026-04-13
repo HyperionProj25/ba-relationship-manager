@@ -2,9 +2,11 @@
 
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Contact, ContactCategory } from '@/types'
+import type { Contact, ContactCategory, TouchType, Priority } from '@/types'
 
 const CATEGORIES: ContactCategory[] = ['MLB', 'Investor', 'IAB', 'Partner', 'Vendor', 'University', 'Other']
+const TOUCH_TYPES: TouchType[] = ['Direct', 'Indirect']
+const PRIORITIES: Priority[] = ['High', 'Medium', 'Low']
 
 interface ContactFormProps {
   contact?: Contact | null
@@ -22,6 +24,9 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
     category: contact?.category ?? 'Other' as ContactCategory,
     linkedin: contact?.linkedin ?? '',
     notes: contact?.notes ?? '',
+    relationship_owner: contact?.relationship_owner ?? '',
+    touch_type: contact?.touch_type ?? '',
+    priority: contact?.priority ?? '',
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
@@ -41,6 +46,9 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
       category: form.category,
       linkedin: form.linkedin.trim() || null,
       notes: form.notes.trim() || null,
+      relationship_owner: form.relationship_owner.trim() || null,
+      touch_type: (form.touch_type || null) as TouchType | null,
+      priority: (form.priority || null) as Priority | null,
     }
 
     const query = contact
@@ -86,11 +94,32 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
         </div>
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Category *</label>
+          <select className={inputClass} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as ContactCategory }))}>
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Touch Type</label>
+          <select className={inputClass} value={form.touch_type} onChange={e => setForm(f => ({ ...f, touch_type: e.target.value }))}>
+            <option value="">—</option>
+            {TOUCH_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-text-secondary mb-1">Priority</label>
+          <select className={inputClass} value={form.priority} onChange={e => setForm(f => ({ ...f, priority: e.target.value }))}>
+            <option value="">—</option>
+            {PRIORITIES.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+        </div>
+      </div>
+
       <div>
-        <label className="block text-sm font-medium text-text-secondary mb-1">Category *</label>
-        <select className={inputClass} value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value as ContactCategory }))}>
-          {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-        </select>
+        <label className="block text-sm font-medium text-text-secondary mb-1">Relationship Owner</label>
+        <input className={inputClass} value={form.relationship_owner} onChange={e => setForm(f => ({ ...f, relationship_owner: e.target.value }))} placeholder="e.g. Chase Spivey & Sheldon McClelland" />
       </div>
 
       <div>

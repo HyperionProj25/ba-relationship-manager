@@ -4,6 +4,10 @@ export type InteractionType = 'Call' | 'Email' | 'Meeting' | 'Text' | 'LinkedIn'
 
 export type FollowUpStatus = 'Pending' | 'Done' | 'Overdue'
 
+export type TouchType = 'Direct' | 'Indirect'
+
+export type Priority = 'High' | 'Medium' | 'Low'
+
 export interface Contact {
   id: string
   name: string
@@ -14,6 +18,9 @@ export interface Contact {
   category: ContactCategory
   linkedin: string | null
   notes: string | null
+  relationship_owner: string | null
+  touch_type: TouchType | null
+  priority: Priority | null
   created_at: string
   updated_at: string
 }
