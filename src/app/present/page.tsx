@@ -12,6 +12,7 @@ export default function PresentPage() {
   const [category, setCategory] = useState<ContactCategory | 'All'>('All')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   // Presentation state
   const [presenting, setPresenting] = useState(false)
@@ -19,6 +20,7 @@ export default function PresentPage() {
   const [slideContacts, setSlideContacts] = useState<ContactWithCadence[]>([])
   const [interactionsByContact, setInteractionsByContact] = useState<Map<string, Interaction[]>>(new Map())
   const [loadingSlides, setLoadingSlides] = useState(false)
+  const [slideError, setSlideError] = useState<string | null>(null)
 
   // Touch tracking
   const touchStart = useRef<number | null>(null)
@@ -28,6 +30,11 @@ export default function PresentPage() {
       supabase.from('contacts').select('*').order('name'),
       supabase.from('interactions').select('contact_id, date, type').order('date', { ascending: false }),
     ])
+    if (contactsRes.error || interactionsRes.error) {
+      setError(contactsRes.error?.message || interactionsRes.error?.message || 'Failed to load')
+      setLoading(false)
+      return
+    }
 
     const latestByContact = new Map<string, { date: string; type: InteractionType }>()
     for (const row of (interactionsRes.data ?? []) as { contact_id: string; date: string; type: InteractionType }[]) {
@@ -95,13 +102,20 @@ export default function PresentPage() {
     if (selectedContacts.length === 0) return
 
     setLoadingSlides(true)
+    setSlideError(null)
     const ids = selectedContacts.map(c => c.id)
 
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from('interactions')
       .select('*')
       .in('contact_id', ids)
       .order('date', { ascending: false })
+
+    if (err) {
+      setSlideError(err.message)
+      setLoadingSlides(false)
+      return
+    }
 
     const grouped = new Map<string, Interaction[]>()
     for (const row of (data ?? []) as Interaction[]) {
@@ -224,6 +238,7 @@ export default function PresentPage() {
 
   // Selection screen
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
 
   const allFilteredSelected = filtered.length > 0 && filtered.every(c => selected.has(c.id))
 
@@ -244,6 +259,8 @@ export default function PresentPage() {
           {loadingSlides ? 'Loading...' : `Start Presentation (${selected.size})`}
         </button>
       </div>
+
+      {slideError && <p className="text-danger text-sm">Failed to load slides: {slideError}</p>}
 
       {/* Category filter + select all */}
       <div className="flex flex-col sm:flex-row sm:items-center gap-3">

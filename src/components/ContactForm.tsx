@@ -12,10 +12,13 @@ interface ContactFormProps {
   contact?: Contact | null
   onSaved: () => void
   onCancel: () => void
+  onDirtyChange?: (dirty: boolean) => void
 }
 
-export default function ContactForm({ contact, onSaved, onCancel }: ContactFormProps) {
-  const [form, setForm] = useState({
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+export default function ContactForm({ contact, onSaved, onCancel, onDirtyChange }: ContactFormProps) {
+  const initial = {
     name: contact?.name ?? '',
     organization: contact?.organization ?? '',
     role: contact?.role ?? '',
@@ -27,10 +30,17 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
     relationship_owner: contact?.relationship_owner ?? '',
     touch_type: contact?.touch_type ?? '',
     priority: contact?.priority ?? '',
-  })
+  }
+  const [form, setForm] = useState(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<string[]>([])
+
+  useEffect(() => {
+    const dirty = JSON.stringify(form) !== JSON.stringify(initial)
+    onDirtyChange?.(dirty)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form])
 
   useEffect(() => {
     let cancelled = false
@@ -45,6 +55,8 @@ export default function ContactForm({ contact, onSaved, onCancel }: ContactFormP
     e.preventDefault()
     if (!form.name.trim()) { setError('Name is required'); return }
     if (!form.category.trim()) { setError('Category is required'); return }
+    if (form.email.trim() && !EMAIL_RE.test(form.email.trim())) { setError('Please enter a valid email address'); return }
+    if (form.linkedin.trim() && !/^https?:\/\//i.test(form.linkedin.trim())) { setError('LinkedIn URL must start with http:// or https://'); return }
     setSaving(true)
     setError('')
 

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { allCategories } from '@/lib/categories'
+import { ORG_NAME } from '@/lib/config'
 import type { Contact, ContactCategory, Priority } from '@/types'
 
 const PRIORITY_ORDER: Record<Priority, number> = { High: 0, Medium: 1, Low: 2 }
@@ -28,6 +29,7 @@ export default function PrintPage() {
   const [category, setCategory] = useState<ContactCategory | 'All'>('All')
   const [sortMode, setSortMode] = useState<'alpha' | 'priority'>('alpha')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -37,6 +39,11 @@ export default function PrintPage() {
         supabase.from('interactions').select('contact_id, date, summary').order('date', { ascending: false }),
       ])
       if (cancelled) return
+      if (contactsRes.error || interactionsRes.error) {
+        setError(contactsRes.error?.message || interactionsRes.error?.message || 'Failed to load')
+        setLoading(false)
+        return
+      }
 
       const map: LatestByContact = new Map()
       for (const row of (interactionsRes.data ?? []) as { contact_id: string; date: string; summary: string }[]) {
@@ -93,6 +100,7 @@ export default function PrintPage() {
   const categoryOptions: (ContactCategory | 'All')[] = ['All', ...allCategories(contacts)]
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
 
   const today = new Date().toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
 
@@ -152,7 +160,7 @@ export default function PrintPage() {
       {/* The printable sheet */}
       <div className="print-sheet bg-white text-slate-900 rounded-xl p-6 sm:p-10 shadow-lg print:shadow-none print:rounded-none print:p-0">
         <header className="border-b-2 border-slate-900 pb-4 mb-6">
-          <p className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-600">Baseline Analytics, Inc.</p>
+          <p className="text-[11px] font-semibold tracking-[0.2em] uppercase text-slate-600">{ORG_NAME}</p>
           <h2 className="text-2xl sm:text-3xl font-bold mt-1">Master List of Funding Sources In Progress</h2>
           <p className="text-xs text-slate-600 mt-2">
             Last Updated: {today} &nbsp;|&nbsp; Confidential — Internal Use Only

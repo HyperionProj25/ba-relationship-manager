@@ -30,11 +30,21 @@ export default function ContactsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('name')
   const [sortAsc, setSortAsc] = useState(true)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [formDirty, setFormDirty] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const guardClose = () => !formDirty || window.confirm('Discard unsaved changes?')
+  const closeModal = () => { if (guardClose()) setShowAddModal(false) }
 
   const fetchContacts = async (ignore?: { current: boolean }) => {
-    const { data } = await supabase.from('contacts').select('*').order('name')
+    const { data, error: err } = await supabase.from('contacts').select('*').order('name')
     if (ignore?.current) return
+    if (err) {
+      setError(err.message)
+      setLoading(false)
+      return
+    }
     setContacts(data ?? [])
     setLoading(false)
   }
@@ -63,6 +73,7 @@ export default function ContactsPage() {
     })
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
 
   return (
     <div className="space-y-6">
@@ -155,8 +166,8 @@ export default function ContactsPage() {
         </div>
       </div>
 
-      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title="Add Contact" wide>
-        <ContactForm onSaved={() => { setShowAddModal(false); fetchContacts() }} onCancel={() => setShowAddModal(false)} />
+      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} canClose={guardClose} title="Add Contact" wide>
+        <ContactForm onSaved={() => { setFormDirty(false); setShowAddModal(false); fetchContacts() }} onCancel={closeModal} onDirtyChange={setFormDirty} />
       </Modal>
     </div>
   )

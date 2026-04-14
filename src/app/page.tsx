@@ -19,13 +19,26 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<SortOption>('urgent')
   const [showContactModal, setShowContactModal] = useState(false)
   const [showInteractionModal, setShowInteractionModal] = useState(false)
+  const [contactFormDirty, setContactFormDirty] = useState(false)
+  const [interactionFormDirty, setInteractionFormDirty] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const guardClose = (dirty: boolean) => !dirty || window.confirm('Discard unsaved changes?')
+  const closeContactModal = () => { if (guardClose(contactFormDirty)) setShowContactModal(false) }
+  const closeInteractionModal = () => { if (guardClose(interactionFormDirty)) setShowInteractionModal(false) }
 
   const fetchDashboard = async () => {
     const [contactsRes, interactionsRes] = await Promise.all([
       supabase.from('contacts').select('*'),
       supabase.from('interactions').select('contact_id, date, type').order('date', { ascending: false }),
     ])
+
+    if (contactsRes.error || interactionsRes.error) {
+      setError(contactsRes.error?.message || interactionsRes.error?.message || 'Failed to load')
+      setLoading(false)
+      return
+    }
 
     const latestByContact = new Map<string, { date: string; type: InteractionType }>()
     for (const row of (interactionsRes.data ?? []) as { contact_id: string; date: string; type: InteractionType }[]) {
@@ -87,6 +100,7 @@ export default function Dashboard() {
   ]
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
 
   return (
     <div className="space-y-6">
@@ -152,8 +166,17 @@ export default function Dashboard() {
 
       {/* Card Grid */}
       {displayed.length === 0 ? (
-        <div className="bg-dark-card border border-border rounded-xl px-6 py-12 text-center text-text-muted">
-          No contacts found
+        <div className="bg-dark-card border border-border rounded-xl px-6 py-12 text-center">
+          {contacts.length === 0 ? (
+            <>
+              <p className="text-text-secondary mb-3">No contacts yet.</p>
+              <button onClick={() => setShowContactModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors">
+                + Add your first contact
+              </button>
+            </>
+          ) : (
+            <p className="text-text-muted">No contacts match this filter.</p>
+          )}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -164,11 +187,11 @@ export default function Dashboard() {
       )}
 
       {/* Modals */}
-      <Modal open={showContactModal} onClose={() => setShowContactModal(false)} title="Add Contact" wide>
-        <ContactForm onSaved={() => { setShowContactModal(false); fetchDashboard() }} onCancel={() => setShowContactModal(false)} />
+      <Modal open={showContactModal} onClose={() => setShowContactModal(false)} canClose={() => guardClose(contactFormDirty)} title="Add Contact" wide>
+        <ContactForm onSaved={() => { setContactFormDirty(false); setShowContactModal(false); fetchDashboard() }} onCancel={closeContactModal} onDirtyChange={setContactFormDirty} />
       </Modal>
-      <Modal open={showInteractionModal} onClose={() => setShowInteractionModal(false)} title="Log Interaction" wide>
-        <InteractionForm onSaved={() => { setShowInteractionModal(false); fetchDashboard() }} onCancel={() => setShowInteractionModal(false)} />
+      <Modal open={showInteractionModal} onClose={() => setShowInteractionModal(false)} canClose={() => guardClose(interactionFormDirty)} title="Log Interaction" wide>
+        <InteractionForm onSaved={() => { setInteractionFormDirty(false); setShowInteractionModal(false); fetchDashboard() }} onCancel={closeInteractionModal} onDirtyChange={setInteractionFormDirty} />
       </Modal>
     </div>
   )

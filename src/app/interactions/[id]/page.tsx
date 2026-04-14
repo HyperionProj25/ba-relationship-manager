@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { todayLocal } from '@/lib/dates'
+import { statusColor } from '@/lib/statusColors'
 import Modal from '@/components/Modal'
 import InteractionForm from '@/components/InteractionForm'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
@@ -17,20 +19,31 @@ export default function InteractionDetailPage() {
   const [interaction, setInteraction] = useState<Interaction | null>(null)
   const [contact, setContact] = useState<Pick<Contact, 'id' | 'name' | 'organization'> | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [editDirty, setEditDirty] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const guardClose = () => !editDirty || window.confirm('Discard unsaved changes?')
+  const closeEdit = () => { if (guardClose()) setShowEditModal(false) }
 
   const fetchData = async () => {
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from('interactions')
       .select('*, contacts(id, name, organization)')
       .eq('id', id)
       .single()
+    if (err) {
+      setError(err.message)
+      setLoading(false)
+      return
+    }
     if (data) {
-      const { contacts: c, ...rest } = data as unknown as Interaction & { contacts: Pick<Contact, 'id' | 'name' | 'organization'> }
+      const { contacts: c, ...rest } = data as unknown as Interaction & { contacts: Pick<Contact, 'id' | 'name' | 'organization'> | null }
       setInteraction(rest)
-      setContact(c)
+      setContact(c ?? null)
     }
     setLoading(false)
   }
@@ -40,22 +53,23 @@ export default function InteractionDetailPage() {
 
   const handleDelete = async () => {
     setDeleting(true)
-    await supabase.from('interactions').delete().eq('id', id)
+    setDeleteError(null)
+    const { error: err } = await supabase.from('interactions').delete().eq('id', id)
+    if (err) {
+      setDeleteError(err.message)
+      setDeleting(false)
+      return
+    }
     router.push('/interactions')
   }
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
   if (!interaction) return <div className="flex items-center justify-center h-64 text-text-muted">Interaction not found</div>
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayLocal()
   const isOverdue = interaction.follow_up_needed && interaction.status === 'Pending' && interaction.follow_up_date && interaction.follow_up_date < today
   const effectiveStatus = isOverdue ? 'Overdue' : interaction.status
-
-  const statusColor = {
-    Pending: 'bg-gold-dim text-gold',
-    Done: 'bg-success-dim text-success',
-    Overdue: 'bg-danger-dim text-danger',
-  }
 
   return (
     <div className="space-y-6">
@@ -139,10 +153,10 @@ export default function InteractionDetailPage() {
       </div>
 
       {/* Modals */}
-      <Modal open={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Interaction" wide>
-        <InteractionForm interaction={interaction} onSaved={() => { setShowEditModal(false); fetchData() }} onCancel={() => setShowEditModal(false)} />
+      <Modal open={showEditModal} onClose={() => setShowEditModal(false)} canClose={guardClose} title="Edit Interaction" wide>
+        <InteractionForm interaction={interaction} onSaved={() => { setEditDirty(false); setShowEditModal(false); fetchData() }} onCancel={closeEdit} onDirtyChange={setEditDirty} />
       </Modal>
-      <DeleteConfirmModal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} onConfirm={handleDelete} name={interaction.summary} loading={deleting} />
+      <DeleteConfirmModal open={showDeleteModal} onClose={() => { setShowDeleteModal(false); setDeleteError(null) }} onConfirm={handleDelete} name={interaction.summary} loading={deleting} error={deleteError} />
     </div>
   )
 }

@@ -8,14 +8,16 @@ interface DeleteConfirmModalProps {
   onConfirm: () => void
   name: string
   loading?: boolean
+  error?: string | null
 }
 
-export default function DeleteConfirmModal({ open, onClose, onConfirm, name, loading }: DeleteConfirmModalProps) {
+export default function DeleteConfirmModal({ open, onClose, onConfirm, name, loading, error }: DeleteConfirmModalProps) {
   return (
     <Modal open={open} onClose={onClose} title="Confirm Delete">
-      <p className="text-text-secondary mb-6">
+      <p className="text-text-secondary mb-4">
         Are you sure you want to delete <span className="text-text-primary font-semibold">{name}</span>? This action cannot be undone.
       </p>
+      {error && <p className="text-danger text-sm mb-4">Failed to delete: {error}</p>}
       <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3">
         <button
           onClick={onClose}

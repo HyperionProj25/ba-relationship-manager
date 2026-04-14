@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { todayLocal } from '@/lib/dates'
+import { statusColor } from '@/lib/statusColors'
 import Modal from '@/components/Modal'
 import InteractionForm from '@/components/InteractionForm'
 import type { InteractionWithContact, InteractionType, FollowUpStatus } from '@/types'
@@ -26,12 +28,8 @@ function SortHeader({ label, field, sortKey, sortAsc, onSort }: {
 }
 
 function StatusBadge({ status }: { status: string }) {
-  const colors: Record<string, string> = {
-    Pending: 'bg-gold-dim text-gold',
-    Done: 'bg-success-dim text-success',
-    Overdue: 'bg-danger-dim text-danger',
-  }
-  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${colors[status] ?? 'bg-surface text-text-secondary'}`}>{status}</span>
+  const cls = statusColor[status as FollowUpStatus] ?? 'bg-surface text-text-secondary'
+  return <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${cls}`}>{status}</span>
 }
 
 export default function InteractionsPage() {
@@ -43,13 +41,23 @@ export default function InteractionsPage() {
   const [sortKey, setSortKey] = useState<SortKey>('date')
   const [sortAsc, setSortAsc] = useState(false)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [formDirty, setFormDirty] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const guardClose = () => !formDirty || window.confirm('Discard unsaved changes?')
+  const closeModal = () => { if (guardClose()) setShowAddModal(false) }
 
   const fetchInteractions = async () => {
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from('interactions')
       .select('*, contacts(id, name, organization)')
       .order('date', { ascending: false })
+    if (err) {
+      setError(err.message)
+      setLoading(false)
+      return
+    }
     setInteractions((data ?? []) as unknown as InteractionWithContact[])
     setLoading(false)
   }
@@ -62,7 +70,7 @@ export default function InteractionsPage() {
     else { setSortKey(key); setSortAsc(key !== 'date') }
   }
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayLocal()
 
   const getEffectiveStatus = (i: InteractionWithContact) => {
     if (i.follow_up_needed && i.status === 'Pending' && i.follow_up_date && i.follow_up_date < today) return 'Overdue'
@@ -91,6 +99,7 @@ export default function InteractionsPage() {
     })
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
 
   return (
     <div className="space-y-6">
@@ -196,8 +205,8 @@ export default function InteractionsPage() {
         </div>
       </div>
 
-      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} title="Log Interaction" wide>
-        <InteractionForm onSaved={() => { setShowAddModal(false); fetchInteractions() }} onCancel={() => setShowAddModal(false)} />
+      <Modal open={showAddModal} onClose={() => setShowAddModal(false)} canClose={guardClose} title="Log Interaction" wide>
+        <InteractionForm onSaved={() => { setFormDirty(false); setShowAddModal(false); fetchInteractions() }} onCancel={closeModal} onDirtyChange={setFormDirty} />
       </Modal>
     </div>
   )

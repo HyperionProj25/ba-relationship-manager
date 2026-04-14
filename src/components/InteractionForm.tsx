@@ -12,24 +12,32 @@ interface InteractionFormProps {
   preselectedContactId?: string
   onSaved: () => void
   onCancel: () => void
+  onDirtyChange?: (dirty: boolean) => void
 }
 
-export default function InteractionForm({ interaction, preselectedContactId, onSaved, onCancel }: InteractionFormProps) {
+export default function InteractionForm({ interaction, preselectedContactId, onSaved, onCancel, onDirtyChange }: InteractionFormProps) {
   const [contacts, setContacts] = useState<Pick<Contact, 'id' | 'name'>[]>([])
   const [search, setSearch] = useState('')
-  const [form, setForm] = useState({
+  const initial = {
     contact_id: interaction?.contact_id ?? preselectedContactId ?? '',
     summary: interaction?.summary ?? '',
-    date: interaction?.date ?? new Date().toISOString().split('T')[0],
+    date: interaction?.date ?? new Date().toLocaleDateString('en-CA'),
     type: interaction?.type ?? 'Meeting' as InteractionType,
     details: interaction?.details ?? '',
     follow_up_needed: interaction?.follow_up_needed ?? false,
     follow_up_date: interaction?.follow_up_date ?? '',
     follow_up_action: interaction?.follow_up_action ?? '',
     status: interaction?.status ?? 'Pending' as FollowUpStatus,
-  })
+  }
+  const [form, setForm] = useState(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  useEffect(() => {
+    const dirty = JSON.stringify(form) !== JSON.stringify(initial)
+    onDirtyChange?.(dirty)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form])
 
   useEffect(() => {
     supabase.from('contacts').select('id, name').order('name').then(({ data }) => {
@@ -45,6 +53,8 @@ export default function InteractionForm({ interaction, preselectedContactId, onS
     e.preventDefault()
     if (!form.contact_id) { setError('Please select a contact'); return }
     if (!form.summary.trim()) { setError('Summary is required'); return }
+    if (!form.date) { setError('Date is required'); return }
+    if (form.follow_up_needed && !form.follow_up_date) { setError('Follow-up date is required when a follow-up is needed'); return }
     setSaving(true)
     setError('')
 

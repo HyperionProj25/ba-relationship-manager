@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { todayLocal } from '@/lib/dates'
 import Modal from '@/components/Modal'
 import ContactForm from '@/components/ContactForm'
 import InteractionForm from '@/components/InteractionForm'
@@ -18,16 +19,34 @@ export default function ContactDetailPage() {
   const [contact, setContact] = useState<Contact | null>(null)
   const [interactions, setInteractions] = useState<Interaction[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showInteractionModal, setShowInteractionModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [editDirty, setEditDirty] = useState(false)
+  const [interactionDirty, setInteractionDirty] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
+
+  const guard = (dirty: boolean) => !dirty || window.confirm('Discard unsaved changes?')
+  const closeEdit = () => { if (guard(editDirty)) setShowEditModal(false) }
+  const closeInteraction = () => { if (guard(interactionDirty)) setShowInteractionModal(false) }
 
   const fetchData = async () => {
     const [contactRes, interactionsRes] = await Promise.all([
       supabase.from('contacts').select('*').eq('id', id).single(),
       supabase.from('interactions').select('*').eq('contact_id', id).order('date', { ascending: false }),
     ])
+    if (contactRes.error && contactRes.error.code !== 'PGRST116') {
+      setError(contactRes.error.message)
+      setLoading(false)
+      return
+    }
+    if (interactionsRes.error) {
+      setError(interactionsRes.error.message)
+      setLoading(false)
+      return
+    }
     setContact(contactRes.data)
     setInteractions(interactionsRes.data ?? [])
     setLoading(false)
@@ -38,11 +57,18 @@ export default function ContactDetailPage() {
 
   const handleDelete = async () => {
     setDeleting(true)
-    await supabase.from('contacts').delete().eq('id', id)
+    setDeleteError(null)
+    const { error: err } = await supabase.from('contacts').delete().eq('id', id)
+    if (err) {
+      setDeleteError(err.message)
+      setDeleting(false)
+      return
+    }
     router.push('/contacts')
   }
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
   if (!contact) return <div className="flex items-center justify-center h-64 text-text-muted">Contact not found</div>
 
   const fields = [
@@ -109,7 +135,12 @@ export default function ContactDetailPage() {
         </div>
         <div className="divide-y divide-border">
           {interactions.length === 0 ? (
-            <p className="px-6 py-8 text-center text-text-muted text-sm">No interactions logged yet</p>
+            <div className="px-6 py-8 text-center">
+              <p className="text-text-muted text-sm mb-3">No interactions yet.</p>
+              <button onClick={() => setShowInteractionModal(true)} className="px-4 py-2 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors">
+                + Log first interaction
+              </button>
+            </div>
           ) : interactions.map(i => (
             <Link key={i.id} href={`/interactions/${i.id}`} className="block px-6 py-4 hover:bg-dark-elevated transition-colors">
               <div className="flex items-start justify-between gap-3">
@@ -117,7 +148,7 @@ export default function ContactDetailPage() {
                   <p className="text-sm font-medium">{i.summary}</p>
                   {i.details && <p className="text-sm text-text-secondary mt-1 line-clamp-2">{i.details}</p>}
                   {i.follow_up_needed && (
-                    <p className={`text-xs mt-1 ${i.status === 'Overdue' || (i.status === 'Pending' && i.follow_up_date && i.follow_up_date < new Date().toISOString().split('T')[0]) ? 'text-danger' : 'text-text-muted'}`}>
+                    <p className={`text-xs mt-1 ${i.status === 'Overdue' || (i.status === 'Pending' && i.follow_up_date && i.follow_up_date < todayLocal()) ? 'text-danger' : 'text-text-muted'}`}>
                       Follow-up: {i.follow_up_action || 'Needed'} {i.follow_up_date ? `by ${i.follow_up_date}` : ''}
                     </p>
                   )}
@@ -133,13 +164,13 @@ export default function ContactDetailPage() {
       </div>
 
       {/* Modals */}
-      <Modal open={showEditModal} onClose={() => setShowEditModal(false)} title="Edit Contact" wide>
-        <ContactForm contact={contact} onSaved={() => { setShowEditModal(false); fetchData() }} onCancel={() => setShowEditModal(false)} />
+      <Modal open={showEditModal} onClose={() => setShowEditModal(false)} canClose={() => guard(editDirty)} title="Edit Contact" wide>
+        <ContactForm contact={contact} onSaved={() => { setEditDirty(false); setShowEditModal(false); fetchData() }} onCancel={closeEdit} onDirtyChange={setEditDirty} />
       </Modal>
-      <Modal open={showInteractionModal} onClose={() => setShowInteractionModal(false)} title="Log Interaction" wide>
-        <InteractionForm preselectedContactId={id} onSaved={() => { setShowInteractionModal(false); fetchData() }} onCancel={() => setShowInteractionModal(false)} />
+      <Modal open={showInteractionModal} onClose={() => setShowInteractionModal(false)} canClose={() => guard(interactionDirty)} title="Log Interaction" wide>
+        <InteractionForm preselectedContactId={id} onSaved={() => { setInteractionDirty(false); setShowInteractionModal(false); fetchData() }} onCancel={closeInteraction} onDirtyChange={setInteractionDirty} />
       </Modal>
-      <DeleteConfirmModal open={showDeleteModal} onClose={() => setShowDeleteModal(false)} onConfirm={handleDelete} name={contact.name} loading={deleting} />
+      <DeleteConfirmModal open={showDeleteModal} onClose={() => { setShowDeleteModal(false); setDeleteError(null) }} onConfirm={handleDelete} name={contact.name} loading={deleting} error={deleteError} />
     </div>
   )
 }

@@ -3,6 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { todayLocal } from '@/lib/dates'
+import { statusColor } from '@/lib/statusColors'
 import type { InteractionWithContact, FollowUpStatus } from '@/types'
 
 const STATUS_FILTERS: (FollowUpStatus | 'All')[] = ['All', 'Overdue', 'Pending', 'Done']
@@ -11,13 +13,19 @@ export default function FollowUpsPage() {
   const [interactions, setInteractions] = useState<InteractionWithContact[]>([])
   const [statusFilter, setStatusFilter] = useState<FollowUpStatus | 'All'>('All')
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   const fetchFollowUps = async () => {
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from('interactions')
       .select('*, contacts(id, name, organization)')
       .eq('follow_up_needed', true)
       .order('follow_up_date', { ascending: true })
+    if (err) {
+      setError(err.message)
+      setLoading(false)
+      return
+    }
     setInteractions((data ?? []) as unknown as InteractionWithContact[])
     setLoading(false)
   }
@@ -25,7 +33,7 @@ export default function FollowUpsPage() {
   // eslint-disable-next-line react-hooks/set-state-in-effect -- client-side Supabase fetch on mount
   useEffect(() => { fetchFollowUps(); }, [])
 
-  const today = new Date().toISOString().split('T')[0]
+  const today = todayLocal()
 
   const getEffectiveStatus = (i: InteractionWithContact): FollowUpStatus => {
     if (i.status === 'Pending' && i.follow_up_date && i.follow_up_date < today) return 'Overdue'
@@ -37,15 +45,17 @@ export default function FollowUpsPage() {
     return getEffectiveStatus(i) === statusFilter
   })
 
-  const markDone = async (id: string) => {
-    await supabase.from('interactions').update({ status: 'Done' }).eq('id', id)
-    setInteractions(prev => prev.map(i => i.id === id ? { ...i, status: 'Done' as FollowUpStatus } : i))
-  }
+  const [pendingDoneId, setPendingDoneId] = useState<string | null>(null)
+  const [markDoneError, setMarkDoneError] = useState<string | null>(null)
 
-  const statusColor = {
-    Pending: 'bg-gold-dim text-gold',
-    Done: 'bg-success-dim text-success',
-    Overdue: 'bg-danger-dim text-danger',
+  const markDone = async (id: string) => {
+    const prevStatus = interactions.find(i => i.id === id)?.status
+    setInteractions(prev => prev.map(i => i.id === id ? { ...i, status: 'Done' as FollowUpStatus } : i))
+    const { error: err } = await supabase.from('interactions').update({ status: 'Done' }).eq('id', id)
+    if (err) {
+      setInteractions(prev => prev.map(i => i.id === id && prevStatus ? { ...i, status: prevStatus } : i))
+      setMarkDoneError(err.message)
+    }
   }
 
   const counts = {
@@ -56,6 +66,7 @@ export default function FollowUpsPage() {
   }
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
+  if (error) return <div className="flex items-center justify-center h-64 text-danger text-sm">Failed to load: {error}</div>
 
   return (
     <div className="space-y-6">
@@ -64,6 +75,13 @@ export default function FollowUpsPage() {
         <h1 className="text-2xl font-bold">Follow-Ups</h1>
         <p className="text-sm text-text-muted mt-1">See what needs attention today.</p>
       </div>
+
+      {markDoneError && (
+        <div className="bg-danger-dim border border-danger/30 rounded-lg px-4 py-2 text-sm text-danger flex items-center justify-between">
+          <span>Failed to mark done: {markDoneError}</span>
+          <button onClick={() => setMarkDoneError(null)} className="text-xs underline">dismiss</button>
+        </div>
+      )}
 
       {/* Status filter pills */}
       <div className="flex gap-2 flex-wrap">
@@ -117,12 +135,29 @@ export default function FollowUpsPage() {
                   {i.details && <p className="text-xs text-text-muted mt-1 line-clamp-1">{i.details}</p>}
                 </div>
                 {effectiveStatus !== 'Done' && (
-                  <button
-                    onClick={() => markDone(i.id)}
-                    className="shrink-0 px-4 py-2.5 sm:px-3 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium bg-success-dim text-success hover:bg-success hover:text-white border border-success/30 transition-colors"
-                  >
-                    Mark Done
-                  </button>
+                  pendingDoneId === i.id ? (
+                    <div className="shrink-0 flex gap-2">
+                      <button
+                        onClick={() => { markDone(i.id); setPendingDoneId(null) }}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium bg-success text-white hover:bg-green-600 transition-colors"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setPendingDoneId(null)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary bg-dark-elevated hover:bg-surface border border-border transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setPendingDoneId(i.id)}
+                      className="shrink-0 px-4 py-2.5 sm:px-3 sm:py-1.5 rounded-lg text-sm sm:text-xs font-medium bg-success-dim text-success hover:bg-success hover:text-white border border-success/30 transition-colors"
+                    >
+                      Mark Done
+                    </button>
+                  )
                 )}
               </div>
             </div>
