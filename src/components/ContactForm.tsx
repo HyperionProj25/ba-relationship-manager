@@ -35,6 +35,7 @@ export default function ContactForm({ contact, onSaved, onCancel, onDirtyChange 
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [categoryOptions, setCategoryOptions] = useState<string[]>([])
+  const [addingCategory, setAddingCategory] = useState(false)
 
   useEffect(() => {
     const dirty = JSON.stringify(form) !== JSON.stringify(initial)
@@ -120,16 +121,42 @@ export default function ContactForm({ contact, onSaved, onCancel, onDirtyChange 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
           <label className="block text-sm font-medium text-text-secondary mb-1">Category *</label>
-          <input
-            list="contact-category-options"
-            className={inputClass}
-            value={form.category}
-            onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
-            placeholder="e.g. Baseline, Investor"
-          />
-          <datalist id="contact-category-options">
-            {categoryOptions.map(c => <option key={c} value={c} />)}
-          </datalist>
+          {addingCategory ? (
+            <div className="flex gap-2">
+              <input
+                autoFocus
+                className={inputClass}
+                value={form.category}
+                onChange={e => setForm(f => ({ ...f, category: e.target.value }))}
+                placeholder="New category name"
+              />
+              <button
+                type="button"
+                onClick={() => setAddingCategory(false)}
+                className="px-2 py-2 rounded-lg text-xs font-medium text-text-secondary hover:text-text-primary bg-dark-elevated hover:bg-surface transition-colors shrink-0"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <select
+              className={inputClass}
+              value={categoryOptions.includes(form.category) ? form.category : ''}
+              onChange={e => {
+                const v = e.target.value
+                if (v === '__add__') {
+                  setForm(f => ({ ...f, category: '' }))
+                  setAddingCategory(true)
+                } else {
+                  setForm(f => ({ ...f, category: v }))
+                }
+              }}
+            >
+              <option value="" disabled>Select category</option>
+              {categoryOptions.map(c => <option key={c} value={c}>{c}</option>)}
+              <option value="__add__">+ Add new category…</option>
+            </select>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-text-secondary mb-1">Touch Type</label>
