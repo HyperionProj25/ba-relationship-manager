@@ -10,6 +10,7 @@ const navItems = [
   { label: 'Contacts', href: '/contacts' },
   { label: 'Interactions', href: '/interactions' },
   { label: 'Follow-Ups', href: '/follow-ups' },
+  { label: 'Copilot', href: '/copilot' },
   { label: 'Present', href: '/present' },
   { label: 'Print', href: '/print' },
 ]
