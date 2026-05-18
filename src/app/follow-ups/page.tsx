@@ -51,7 +51,7 @@ export default function FollowUpsPage() {
   const markDone = async (id: string) => {
     const prevStatus = interactions.find(i => i.id === id)?.status
     setInteractions(prev => prev.map(i => i.id === id ? { ...i, status: 'Done' as FollowUpStatus } : i))
-    const { error: err } = await supabase.from('interactions').update({ status: 'Done' }).eq('id', id)
+    const { error: err } = await supabase.from('interactions').update({ status: 'Done', completed_at: new Date().toISOString() }).eq('id', id)
     if (err) {
       setInteractions(prev => prev.map(i => i.id === id && prevStatus ? { ...i, status: prevStatus } : i))
       setMarkDoneError(err.message)

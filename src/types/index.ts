@@ -49,6 +49,29 @@ export interface ContactWithCadence extends Contact {
   lastInteractionType: InteractionType | null
 }
 
+export type TaskType = 'quick_todo' | 'talk_about' | 'reach_out_now'
+
+export type TaskPriority = 'low' | 'medium' | 'high'
+
+export type TaskStatus = 'open' | 'done'
+
+export interface Task {
+  id: string
+  title: string
+  type: TaskType
+  priority: TaskPriority
+  status: TaskStatus
+  contact_id: string | null
+  notes: string | null
+  due_date: string | null
+  created_at: string
+  completed_at: string | null
+}
+
+export interface TaskWithContact extends Task {
+  contacts: Pick<Contact, 'id' | 'name'> | null
+}
+
 export interface CopilotChat {
   id: string
   title: string

@@ -11,6 +11,7 @@ const navItems = [
   { label: 'Contacts', href: '/contacts' },
   { label: 'Interactions', href: '/interactions' },
   { label: 'Follow-Ups', href: '/follow-ups' },
+  { label: 'Tasks', href: '/tasks' },
   { label: 'Present', href: '/present' },
   { label: 'Print', href: '/print' },
 ]
