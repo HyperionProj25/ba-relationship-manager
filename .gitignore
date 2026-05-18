@@ -43,3 +43,6 @@ Baseline _ Source Files/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# claude code local settings
+/.claude/
