@@ -6,11 +6,11 @@ import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 
 const navItems = [
+  { label: 'Copilot', href: '/copilot' },
   { label: 'Dashboard', href: '/' },
   { label: 'Contacts', href: '/contacts' },
   { label: 'Interactions', href: '/interactions' },
   { label: 'Follow-Ups', href: '/follow-ups' },
-  { label: 'Copilot', href: '/copilot' },
   { label: 'Present', href: '/present' },
   { label: 'Print', href: '/print' },
 ]

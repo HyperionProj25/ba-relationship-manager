@@ -48,3 +48,18 @@ export interface ContactWithCadence extends Contact {
   lastInteractionDate: string | null
   lastInteractionType: InteractionType | null
 }
+
+export interface CopilotChat {
+  id: string
+  title: string
+  created_at: string
+  updated_at: string
+}
+
+export interface CopilotMessage {
+  id: string
+  chat_id: string
+  role: 'user' | 'assistant'
+  content: string
+  created_at: string
+}
