@@ -1,20 +1,27 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
-import ForceGraph2D from 'react-force-graph-2d'
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+  useRef,
+  useState,
+  type Ref,
+} from 'react'
+import ForceGraph2D, { type ForceGraphMethods } from 'react-force-graph-2d'
 import type { BrainNodeType } from '@/types'
+import { clusterCenter, type ClusterId } from './clusters'
 
 export interface GraphNode {
   id: string
   title: string
   type: BrainNodeType
-  body: string | null
+  cluster: ClusterId
+  isTeam: boolean
   tags: string[]
-  contact_id: string | null
-  updated_at: string
-  created_at: string
   degree: number
-  // d3 mutable
   x?: number
   y?: number
 }
@@ -27,19 +34,159 @@ export interface GraphLink {
   strength: number
 }
 
+export interface BrainGraphHandle {
+  zoomToCluster: (id: ClusterId) => void
+  zoomToNode: (id: string) => void
+  zoomToFit: () => void
+}
+
 interface Props {
   nodes: GraphNode[]
   links: GraphLink[]
-  colorByType: Record<BrainNodeType, string>
   search: string
-  hiddenTypes: Set<BrainNodeType>
   hoveredId: string | null
   setHoveredId: (id: string | null) => void
-  onNodeClick: (node: GraphNode) => void
   selectedId: string | null
+  focusedCluster: ClusterId | null
+  onNodeClick: (node: GraphNode) => void
+  onBackgroundClick: () => void
 }
 
-function neighborSets(nodes: GraphNode[], links: GraphLink[]): { neighbors: Map<string, Set<string>>; linkNeighbors: Map<string, Set<string>> } {
+// Color helpers ---------------------------------------------------------------
+
+const TYPE_COLORS: Record<BrainNodeType, string> = {
+  person: '#4A90D9',
+  company: '#3DA5D9',
+  strategy: '#7ED321',
+  decision: '#D0021B',
+  research: '#9013FE',
+  idea: '#F8E71C',
+  event: '#50E3C2',
+  technology: '#E8E8E8',
+  term: '#BD10E0',
+  milestone: '#FF6B35',
+}
+
+function colorFor(node: GraphNode): string {
+  if (node.type === 'person' && node.isTeam) return '#FFC233'
+  return TYPE_COLORS[node.type] ?? '#888'
+}
+
+// Custom cluster force --------------------------------------------------------
+
+const CLUSTER_RADIUS = 320
+const CLUSTER_STRENGTH = 0.08
+
+interface ClusterableNode {
+  cluster: ClusterId
+  x: number
+  y: number
+  vx: number
+  vy: number
+}
+
+function makeClusterForce() {
+  let internalNodes: ClusterableNode[] = []
+  const force = (alpha: number) => {
+    for (const n of internalNodes) {
+      const center = clusterCenter(n.cluster, CLUSTER_RADIUS)
+      n.vx += (center.x - n.x) * CLUSTER_STRENGTH * alpha
+      n.vy += (center.y - n.y) * CLUSTER_STRENGTH * alpha
+    }
+  }
+  // d3-force calls force.initialize(nodes) when assigned.
+  force.initialize = (nodes: ClusterableNode[]) => { internalNodes = nodes }
+  return force
+}
+
+// Node painting ---------------------------------------------------------------
+
+function nodeBaseRadius(degree: number): number {
+  // base 5, scale up with connection count, max 15.
+  return Math.min(15, 5 + Math.sqrt(Math.max(0, degree)) * 2)
+}
+
+function paintCircle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string | null) {
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
+  ctx.fillStyle = fill
+  ctx.fill()
+  if (stroke) {
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = stroke
+    ctx.stroke()
+  }
+}
+
+function paintDiamond(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string | null) {
+  ctx.beginPath()
+  ctx.moveTo(x, y - r)
+  ctx.lineTo(x + r, y)
+  ctx.lineTo(x, y + r)
+  ctx.lineTo(x - r, y)
+  ctx.closePath()
+  ctx.fillStyle = fill
+  ctx.fill()
+  if (stroke) {
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = stroke
+    ctx.stroke()
+  }
+}
+
+function paintHexagon(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string | null) {
+  ctx.beginPath()
+  for (let i = 0; i < 6; i++) {
+    const a = (Math.PI / 3) * i + Math.PI / 6
+    const px = x + r * Math.cos(a)
+    const py = y + r * Math.sin(a)
+    if (i === 0) ctx.moveTo(px, py)
+    else ctx.lineTo(px, py)
+  }
+  ctx.closePath()
+  ctx.fillStyle = fill
+  ctx.fill()
+  if (stroke) {
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = stroke
+    ctx.stroke()
+  }
+}
+
+function paintRoundedSquare(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string | null) {
+  const s = r * 1.6
+  const rad = Math.min(4, s / 4)
+  ctx.beginPath()
+  ctx.roundRect(x - s / 2, y - s / 2, s, s, rad)
+  ctx.fillStyle = fill
+  ctx.fill()
+  if (stroke) {
+    ctx.lineWidth = 1.5
+    ctx.strokeStyle = stroke
+    ctx.stroke()
+  }
+}
+
+function paintShape(ctx: CanvasRenderingContext2D, node: GraphNode, x: number, y: number, r: number, fill: string, stroke: string | null) {
+  switch (node.type) {
+    case 'strategy':
+    case 'decision':
+      paintDiamond(ctx, x, y, r * 1.15, fill, stroke)
+      return
+    case 'technology':
+      paintHexagon(ctx, x, y, r * 1.1, fill, stroke)
+      return
+    case 'company':
+      paintRoundedSquare(ctx, x, y, r, fill, stroke)
+      return
+    default:
+      paintCircle(ctx, x, y, r, fill, stroke)
+  }
+}
+
+// Neighbor index --------------------------------------------------------------
+
+function buildNeighborIndex(nodes: GraphNode[], links: GraphLink[]) {
   const neighbors = new Map<string, Set<string>>()
   const linkNeighbors = new Map<string, Set<string>>()
   for (const n of nodes) {
@@ -57,21 +204,17 @@ function neighborSets(nodes: GraphNode[], links: GraphLink[]): { neighbors: Map<
   return { neighbors, linkNeighbors }
 }
 
-export default function BrainGraph({
-  nodes,
-  links,
-  colorByType,
-  search,
-  hiddenTypes,
-  hoveredId,
-  setHoveredId,
-  onNodeClick,
-  selectedId,
-}: Props) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [dims, setDims] = useState<{ w: number; h: number }>({ w: 800, h: 600 })
+// Component -------------------------------------------------------------------
 
-  // Track container size for the graph canvas.
+function BrainGraphImpl(
+  { nodes, links, search, hoveredId, setHoveredId, selectedId, focusedCluster, onNodeClick, onBackgroundClick }: Props,
+  ref: Ref<BrainGraphHandle>,
+) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const fgRef = useRef<ForceGraphMethods<GraphNode, GraphLink>>(undefined)
+  const [dims, setDims] = useState({ w: 800, h: 600 })
+
+  // Track container size.
   useEffect(() => {
     if (!containerRef.current) return
     const el = containerRef.current
@@ -88,99 +231,174 @@ export default function BrainGraph({
     return () => ro.disconnect()
   }, [])
 
-  const { neighbors, linkNeighbors } = neighborSets(nodes, links)
+  // Configure the custom cluster force once after the graph mounts.
+  useEffect(() => {
+    const fg = fgRef.current
+    if (!fg) return
+    fg.d3Force('cluster', makeClusterForce() as unknown as Parameters<typeof fg.d3Force>[1])
+    const charge = fg.d3Force('charge') as { strength?: (s: number) => unknown } | undefined
+    charge?.strength?.(-120)
+    fg.d3ReheatSimulation()
+  }, [])
 
-  const visibleNodeIds = new Set(nodes.filter(n => !hiddenTypes.has(n.type)).map(n => n.id))
-  const filteredNodes = nodes.filter(n => visibleNodeIds.has(n.id))
-  const filteredLinks = links.filter(l => {
-    const s = typeof l.source === 'object' ? l.source.id : l.source
-    const t = typeof l.target === 'object' ? l.target.id : l.target
-    return visibleNodeIds.has(s) && visibleNodeIds.has(t)
-  })
+  const { neighbors, linkNeighbors } = useMemo(() => buildNeighborIndex(nodes, links), [nodes, links])
+
+  const focusId = hoveredId ?? selectedId
+  const focusedNeighborhood = useMemo(() => {
+    if (!focusId) return null
+    const set = new Set<string>([focusId])
+    for (const n of neighbors.get(focusId) ?? []) set.add(n)
+    return set
+  }, [focusId, neighbors])
+  const focusedLinkIds = useMemo(() => {
+    if (!focusId) return null
+    return linkNeighbors.get(focusId) ?? new Set<string>()
+  }, [focusId, linkNeighbors])
 
   const searchLower = search.trim().toLowerCase()
-  const focusId = hoveredId ?? selectedId
-  const focusedNeighborhood = focusId ? new Set([focusId, ...(neighbors.get(focusId) ?? [])]) : null
-  const focusedLinkIds = focusId ? (linkNeighbors.get(focusId) ?? new Set()) : new Set<string>()
-
-  const matchesSearch = (node: GraphNode) => {
+  const matchesSearch = useCallback((n: GraphNode) => {
     if (!searchLower) return true
-    return node.title.toLowerCase().includes(searchLower)
-      || (node.tags ?? []).some(t => t.toLowerCase().includes(searchLower))
-  }
+    return n.title.toLowerCase().includes(searchLower)
+      || n.tags.some(t => t.toLowerCase().includes(searchLower))
+  }, [searchLower])
 
-  const data = { nodes: filteredNodes, links: filteredLinks }
+  // Imperative handle.
+  useImperativeHandle(ref, () => ({
+    zoomToCluster: (id: ClusterId) => {
+      const c = clusterCenter(id, CLUSTER_RADIUS)
+      fgRef.current?.centerAt(c.x, c.y, 600)
+      fgRef.current?.zoom(1.4, 600)
+    },
+    zoomToNode: (id: string) => {
+      const n = nodes.find(n => n.id === id)
+      if (!n || n.x == null || n.y == null) return
+      fgRef.current?.centerAt(n.x, n.y, 500)
+      fgRef.current?.zoom(2.2, 500)
+    },
+    zoomToFit: () => fgRef.current?.zoomToFit(600, 80),
+  }), [nodes])
 
   return (
     <div ref={containerRef} className="absolute inset-0">
-      <ForceGraph2D
-        graphData={data}
+      <ForceGraph2D<GraphNode, GraphLink>
+        ref={fgRef}
+        graphData={{ nodes, links }}
         width={dims.w}
         height={dims.h}
-        backgroundColor="#000000"
+        backgroundColor="rgba(0,0,0,0)"
         nodeId="id"
         nodeRelSize={4}
-        nodeVal={(n: GraphNode) => (n.degree >= 3 ? 10 : 6)}
-        nodeColor={(n: GraphNode) => colorByType[n.type] ?? '#888'}
+        cooldownTicks={150}
+        warmupTicks={30}
+        d3AlphaDecay={0.025}
+        d3VelocityDecay={0.35}
         linkSource="source"
         linkTarget="target"
-        linkWidth={(l: GraphLink) => {
-          // Map strength 1..10 → 0.5..3 px
-          const base = 0.5 + ((l.strength - 1) / 9) * 2.5
-          if (focusId && focusedLinkIds.has(l.id)) return base + 1
+        linkWidth={(l) => {
+          const base = 0.5 + ((l.strength - 1) / 9) * 2.0
+          if (focusId && focusedLinkIds?.has(l.id)) return base + 0.8
           return base
         }}
-        linkColor={(l: GraphLink) => {
-          if (focusId && focusedLinkIds.has(l.id)) return 'rgba(255, 198, 85, 0.6)'
+        linkColor={(l) => {
+          if (focusId && focusedLinkIds?.has(l.id)) return 'rgba(255, 198, 85, 0.55)'
           if (focusId) return 'rgba(255, 255, 255, 0.04)'
-          return 'rgba(255, 255, 255, 0.15)'
+          if (focusedCluster) {
+            const s = typeof l.source === 'object' ? l.source : nodes.find(n => n.id === l.source)
+            const t = typeof l.target === 'object' ? l.target : nodes.find(n => n.id === l.target)
+            if (s?.cluster === focusedCluster || t?.cluster === focusedCluster) return 'rgba(255,255,255,0.22)'
+            return 'rgba(255,255,255,0.04)'
+          }
+          return 'rgba(255, 255, 255, 0.08)'
         }}
-        nodeCanvasObjectMode={() => 'after'}
         nodeCanvasObject={(node, ctx, globalScale) => {
           const n = node as GraphNode
-          const label = n.title
           const isSelected = n.id === selectedId
           const isHovered = n.id === hoveredId
-          const isInFocus = !focusedNeighborhood || focusedNeighborhood.has(n.id)
+          const inFocusNbhd = !focusedNeighborhood || focusedNeighborhood.has(n.id)
           const matches = matchesSearch(n)
-          const dim = (focusedNeighborhood && !isInFocus) || (!!searchLower && !matches)
+          const inFocusedCluster = !focusedCluster || n.cluster === focusedCluster
+          const dim = (focusedNeighborhood && !inFocusNbhd)
+            || (!!searchLower && !matches)
+            || (!!focusedCluster && !inFocusedCluster)
 
-          // Selection / hover ring
-          if (isSelected || isHovered) {
-            const radius = (n.degree >= 3 ? 10 : 6) + 3
+          const radius = nodeBaseRadius(n.degree)
+          const baseColor = colorFor(n)
+          const fill = dim ? hexWithAlpha(baseColor, 0.18) : baseColor
+          const stroke = isSelected ? '#FFC655' : isHovered ? 'rgba(255, 198, 85, 0.7)' : null
+
+          // Selection halo.
+          if (isSelected) {
             ctx.beginPath()
-            ctx.arc(n.x ?? 0, n.y ?? 0, radius, 0, 2 * Math.PI, false)
-            ctx.strokeStyle = isSelected ? '#FFC655' : 'rgba(255, 198, 85, 0.5)'
-            ctx.lineWidth = 1.5 / globalScale
-            ctx.stroke()
+            ctx.arc(n.x ?? 0, n.y ?? 0, radius + 6, 0, Math.PI * 2)
+            ctx.fillStyle = 'rgba(255, 198, 85, 0.10)'
+            ctx.fill()
           }
 
-          // Label
-          const fontSize = Math.max(10 / globalScale, 2)
-          ctx.font = `${fontSize}px Inter, system-ui, sans-serif`
-          ctx.textAlign = 'center'
-          ctx.textBaseline = 'top'
-          ctx.fillStyle = dim ? 'rgba(255,255,255,0.25)' : 'rgba(255,255,255,0.92)'
-          const radius = n.degree >= 3 ? 10 : 6
-          // Render the label only if zoomed in enough or it's highlighted, to reduce visual noise.
-          if (globalScale > 1.2 || isSelected || isHovered || (searchLower && matches)) {
-            ctx.fillText(label, n.x ?? 0, (n.y ?? 0) + radius / 2 + 4 / globalScale)
+          paintShape(ctx, n, n.x ?? 0, n.y ?? 0, radius, fill, stroke)
+
+          // Label rules: always for degree >= 3, on hover/select for smaller, on search match.
+          const labelAlways = n.degree >= 3
+          const shouldLabel = !dim && (labelAlways || isHovered || isSelected || (!!searchLower && matches) || globalScale > 1.6)
+          if (shouldLabel) {
+            const fontSize = Math.max(11 / globalScale, 2.4)
+            ctx.font = `${isSelected || isHovered ? '600 ' : ''}${fontSize}px Inter, system-ui, sans-serif`
+            ctx.textAlign = 'center'
+            ctx.textBaseline = 'top'
+            const label = n.title
+            const ty = (n.y ?? 0) + radius + 3 / globalScale
+            // Shadow for readability over edges.
+            ctx.shadowColor = 'rgba(0,0,0,0.95)'
+            ctx.shadowBlur = 4
+            ctx.fillStyle = 'rgba(255,255,255,0.95)'
+            ctx.fillText(label, n.x ?? 0, ty)
+            ctx.shadowBlur = 0
           }
         }}
         nodePointerAreaPaint={(node, color, ctx) => {
           const n = node as GraphNode
-          const radius = n.degree >= 3 ? 10 : 6
+          const r = nodeBaseRadius(n.degree) + 3
           ctx.fillStyle = color
           ctx.beginPath()
-          ctx.arc(n.x ?? 0, n.y ?? 0, radius + 2, 0, 2 * Math.PI, false)
+          ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2)
           ctx.fill()
         }}
-        nodeLabel={(n: GraphNode) => `${n.title}\n${n.type}`}
+        nodeLabel={(n) => `${n.title} · ${n.type} · ${n.degree} connection${n.degree === 1 ? '' : 's'}`}
         onNodeClick={(n) => onNodeClick(n as GraphNode)}
         onNodeHover={(n) => setHoveredId(n ? (n as GraphNode).id : null)}
-        cooldownTicks={120}
-        warmupTicks={20}
+        onNodeDragEnd={(n) => {
+          // Pin the node in place after a manual drag so users can lay out the graph.
+          const node = n as GraphNode & { fx?: number; fy?: number }
+          node.fx = node.x
+          node.fy = node.y
+        }}
+        onBackgroundClick={onBackgroundClick}
+        onNodeRightClick={(n) => {
+          // Right-click un-pins a dragged node.
+          const node = n as GraphNode & { fx?: number | null; fy?: number | null }
+          node.fx = null
+          node.fy = null
+        }}
+        enableZoomInteraction
+        enablePanInteraction
+        minZoom={0.3}
+        maxZoom={6}
       />
     </div>
   )
+}
+
+const BrainGraph = forwardRef<BrainGraphHandle, Props>(BrainGraphImpl)
+BrainGraph.displayName = 'BrainGraph'
+export default BrainGraph
+
+// --- helpers -----------------------------------------------------------------
+
+function hexWithAlpha(hex: string, alpha: number): string {
+  // Accept #RGB or #RRGGBB.
+  let h = hex.replace('#', '')
+  if (h.length === 3) h = h.split('').map(c => c + c).join('')
+  const r = parseInt(h.slice(0, 2), 16)
+  const g = parseInt(h.slice(2, 4), 16)
+  const b = parseInt(h.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`
 }

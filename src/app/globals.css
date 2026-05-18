@@ -67,3 +67,10 @@ table {
 input, select, textarea {
   color-scheme: dark;
 }
+
+/* Brain page: subtle dot pattern background for the graph canvas wrapper. */
+.brain-dot-bg {
+  background-color: #000;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
