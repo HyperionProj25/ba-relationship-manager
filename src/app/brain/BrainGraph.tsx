@@ -74,8 +74,8 @@ function colorFor(node: GraphNode): string {
 
 // Custom cluster force --------------------------------------------------------
 
-const CLUSTER_RADIUS = 320
-const CLUSTER_STRENGTH = 0.08
+const CLUSTER_RADIUS = 360
+const CLUSTER_STRENGTH = 0.12
 
 interface ClusterableNode {
   cluster: ClusterId
@@ -101,9 +101,11 @@ function makeClusterForce() {
 
 // Node painting ---------------------------------------------------------------
 
-function nodeBaseRadius(degree: number): number {
-  // base 5, scale up with connection count, max 15.
-  return Math.min(15, 5 + Math.sqrt(Math.max(0, degree)) * 2)
+function nodeBaseRadius(node: Pick<GraphNode, 'type' | 'degree'>): number {
+  // People are the most important category — they get the biggest base + cap.
+  const base = node.type === 'person' ? 12 : 10
+  const max = node.type === 'person' ? 26 : 22
+  return Math.min(max, base + Math.sqrt(Math.max(0, node.degree)) * 2.5)
 }
 
 function paintCircle(ctx: CanvasRenderingContext2D, x: number, y: number, r: number, fill: string, stroke: string | null) {
@@ -231,13 +233,17 @@ function BrainGraphImpl(
     return () => ro.disconnect()
   }, [])
 
-  // Configure the custom cluster force once after the graph mounts.
+  // Configure forces once after the graph mounts: stronger repulsion to prevent
+  // overlap of the larger nodes, longer link distance so connected nodes breathe,
+  // and the custom cluster force on top.
   useEffect(() => {
     const fg = fgRef.current
     if (!fg) return
     fg.d3Force('cluster', makeClusterForce() as unknown as Parameters<typeof fg.d3Force>[1])
     const charge = fg.d3Force('charge') as { strength?: (s: number) => unknown } | undefined
-    charge?.strength?.(-120)
+    charge?.strength?.(-260)
+    const link = fg.d3Force('link') as { distance?: (d: number) => unknown } | undefined
+    link?.distance?.(70)
     fg.d3ReheatSimulation()
   }, [])
 
@@ -288,10 +294,10 @@ function BrainGraphImpl(
         backgroundColor="rgba(0,0,0,0)"
         nodeId="id"
         nodeRelSize={4}
-        cooldownTicks={150}
+        cooldownTicks={120}
         warmupTicks={30}
-        d3AlphaDecay={0.025}
-        d3VelocityDecay={0.35}
+        d3AlphaDecay={0.045}
+        d3VelocityDecay={0.5}
         linkSource="source"
         linkTarget="target"
         linkWidth={(l) => {
@@ -321,7 +327,7 @@ function BrainGraphImpl(
             || (!!searchLower && !matches)
             || (!!focusedCluster && !inFocusedCluster)
 
-          const radius = nodeBaseRadius(n.degree)
+          const radius = nodeBaseRadius(n)
           const baseColor = colorFor(n)
           const fill = dim ? hexWithAlpha(baseColor, 0.18) : baseColor
           const stroke = isSelected ? '#FFC655' : isHovered ? 'rgba(255, 198, 85, 0.7)' : null
@@ -329,34 +335,37 @@ function BrainGraphImpl(
           // Selection halo.
           if (isSelected) {
             ctx.beginPath()
-            ctx.arc(n.x ?? 0, n.y ?? 0, radius + 6, 0, Math.PI * 2)
+            ctx.arc(n.x ?? 0, n.y ?? 0, radius + 8, 0, Math.PI * 2)
             ctx.fillStyle = 'rgba(255, 198, 85, 0.10)'
             ctx.fill()
           }
 
           paintShape(ctx, n, n.x ?? 0, n.y ?? 0, radius, fill, stroke)
 
-          // Label rules: always for degree >= 3, on hover/select for smaller, on search match.
-          const labelAlways = n.degree >= 3
-          const shouldLabel = !dim && (labelAlways || isHovered || isSelected || (!!searchLower && matches) || globalScale > 1.6)
-          if (shouldLabel) {
-            const fontSize = Math.max(11 / globalScale, 2.4)
-            ctx.font = `${isSelected || isHovered ? '600 ' : ''}${fontSize}px Inter, system-ui, sans-serif`
+          // Labels: always show all (graph is small enough). Offset slightly below the node.
+          if (!dim) {
+            const fontSize = Math.max(13 / globalScale, 3)
+            ctx.font = `${isSelected || isHovered ? '600 ' : '500 '}${fontSize}px Inter, system-ui, sans-serif`
             ctx.textAlign = 'center'
             ctx.textBaseline = 'top'
             const label = n.title
-            const ty = (n.y ?? 0) + radius + 3 / globalScale
-            // Shadow for readability over edges.
-            ctx.shadowColor = 'rgba(0,0,0,0.95)'
-            ctx.shadowBlur = 4
-            ctx.fillStyle = 'rgba(255,255,255,0.95)'
+            const ty = (n.y ?? 0) + radius + 6 / globalScale
+            // Strong shadow so labels stay legible over edges or dot pattern.
+            ctx.save()
+            ctx.shadowColor = 'rgba(0,0,0,1)'
+            ctx.shadowBlur = 6
+            ctx.fillStyle = 'rgba(0,0,0,0.9)'
+            // Draw three times to build up the outline shadow.
             ctx.fillText(label, n.x ?? 0, ty)
-            ctx.shadowBlur = 0
+            ctx.fillText(label, n.x ?? 0, ty)
+            ctx.fillStyle = 'rgba(255,255,255,0.96)'
+            ctx.fillText(label, n.x ?? 0, ty)
+            ctx.restore()
           }
         }}
         nodePointerAreaPaint={(node, color, ctx) => {
           const n = node as GraphNode
-          const r = nodeBaseRadius(n.degree) + 3
+          const r = nodeBaseRadius(n) + 3
           ctx.fillStyle = color
           ctx.beginPath()
           ctx.arc(n.x ?? 0, n.y ?? 0, r, 0, Math.PI * 2)
