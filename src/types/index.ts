@@ -86,3 +86,37 @@ export interface CopilotMessage {
   content: string
   created_at: string
 }
+
+export type BrainNodeType =
+  | 'person'
+  | 'company'
+  | 'strategy'
+  | 'decision'
+  | 'research'
+  | 'idea'
+  | 'event'
+  | 'technology'
+  | 'term'
+  | 'milestone'
+
+export interface BrainNode {
+  id: string
+  type: BrainNodeType
+  title: string
+  body: string | null
+  tags: string[]
+  source: string | null
+  contact_id: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface BrainEdge {
+  id: string
+  source_node_id: string
+  target_node_id: string
+  relationship: string
+  strength: number
+  notes: string | null
+  created_at: string
+}
