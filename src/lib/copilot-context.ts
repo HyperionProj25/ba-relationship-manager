@@ -3,19 +3,8 @@ import { todayLocal } from './dates'
 
 const FOLLOWUP_KEYWORDS = ['follow-up', 'follow up', 'overdue', 'due', 'pending']
 const TASK_KEYWORDS = ['task', 'agenda', 'todo', 'to-do', 'to do', 'open items', 'my plate', "what's on my"]
-const BRAIN_KEYWORDS = ['brain', 'knowledge', 'what do we know', 'remember', 'history of']
+const BRAIN_KEYWORDS = ['brain', 'graph', 'knowledge', 'what do we know', 'connections', 'remember', 'history of']
 const DATE_KEYWORDS = ['today', 'yesterday', 'this week', 'last week', 'this month']
-
-// Excluded from brain title-substring searches so generic words don't dominate results.
-const STOPWORDS = new Set([
-  'the', 'and', 'for', 'you', 'are', 'was', 'were', 'has', 'have', 'had', 'but', 'not',
-  'our', 'they', 'them', 'what', 'who', 'when', 'where', 'why', 'how', 'can', 'with',
-  'this', 'that', 'these', 'those', 'all', 'any', 'some', 'just', 'like', 'know',
-  'tell', 'give', 'find', 'show', 'list', 'get', 'want', 'need', 'about', 'from',
-  'into', 'over', 'than', 'then', 'will', 'would', 'could', 'should', 'their',
-  'there', 'here', 'now', 'today', 'yesterday', 'week', 'month',
-  'brain', 'knowledge', 'remember', 'history',
-])
 
 function escapeRegExp(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
@@ -41,7 +30,60 @@ type ContactLite = { id: string; name: string }
 type ContactFull = { id: string; name: string; organization: string | null; role: string | null; category: string; notes: string | null }
 type InteractionRow = { contact_id: string; summary: string; date: string; type: string; follow_up_needed: boolean; follow_up_date: string | null; follow_up_action: string | null; status: string }
 type TaskRow = { id: string; title: string; type: string; priority: string; contact_id: string | null; due_date: string | null }
-type BrainRow = { type: string; title: string; body: string | null; tags: string[] | null }
+type BrainNodeRow = { id: string; type: string; title: string; body: string | null; tags: string[] | null }
+type BrainEdgeRow = { source_node_id: string; target_node_id: string; relationship: string }
+
+function clusterTag(tags: string[] | null | undefined): string | null {
+  if (!tags) return null
+  return tags.find(t => t.startsWith('cluster:')) ?? null
+}
+
+async function loadConnectionsFor(
+  supabase: SupabaseClient,
+  nodeIds: string[],
+): Promise<Map<string, string[]>> {
+  const out = new Map<string, string[]>()
+  if (nodeIds.length === 0) return out
+  const { data: edges } = await supabase
+    .from('brain_edges')
+    .select('source_node_id, target_node_id, relationship')
+    .or(`source_node_id.in.(${nodeIds.join(',')}),target_node_id.in.(${nodeIds.join(',')})`)
+  const edgeRows = (edges ?? []) as BrainEdgeRow[]
+  const otherIds = new Set<string>()
+  for (const e of edgeRows) {
+    if (!nodeIds.includes(e.source_node_id)) otherIds.add(e.source_node_id)
+    if (!nodeIds.includes(e.target_node_id)) otherIds.add(e.target_node_id)
+  }
+  const allIds = Array.from(new Set([...nodeIds, ...otherIds]))
+  const { data: nodes } = await supabase
+    .from('brain_nodes')
+    .select('id, title')
+    .in('id', allIds)
+  const titleMap = new Map<string, string>(
+    ((nodes ?? []) as Array<{ id: string; title: string }>).map(n => [n.id, n.title]),
+  )
+  for (const e of edgeRows) {
+    const addTo = (mine: string, other: string) => {
+      if (!nodeIds.includes(mine)) return
+      const arr = out.get(mine) ?? []
+      const otherTitle = titleMap.get(other)
+      if (otherTitle && !arr.includes(otherTitle)) arr.push(otherTitle)
+      out.set(mine, arr)
+    }
+    addTo(e.source_node_id, e.target_node_id)
+    addTo(e.target_node_id, e.source_node_id)
+  }
+  return out
+}
+
+function formatBrainLine(n: BrainNodeRow, connections: string[] | undefined): string {
+  const cluster = clusterTag(n.tags)
+  const clusterStr = cluster ? ` (${cluster})` : ''
+  const conn = connections && connections.length > 0
+    ? ` — connected to: ${connections.slice(0, 5).join(', ')}${connections.length > 5 ? '…' : ''}`
+    : ''
+  return `- [${n.type}] "${n.title}"${clusterStr}${conn}`
+}
 
 /**
  * Builds a compact context block tailored to what the user is actually asking about.
@@ -101,6 +143,24 @@ export async function getRelevantContext(
         sections.push(`  open task [${t.type}, ${t.priority}]: ${t.title}${due}`)
       }
     }
+
+    // Pull any brain nodes whose title matches the mentioned contacts so the copilot
+    // sees what's already captured before creating duplicates.
+    const orExpr = fulls.map(c => `title.ilike.%${c.name.replace(/[,()]/g, '')}%`).join(',')
+    if (orExpr) {
+      const { data: brainMatches } = await supabase
+        .from('brain_nodes')
+        .select('id, type, title, body, tags')
+        .or(orExpr)
+        .limit(10)
+      const nodes = (brainMatches ?? []) as BrainNodeRow[]
+      if (nodes.length > 0) {
+        const connMap = await loadConnectionsFor(supabase, nodes.map(n => n.id))
+        sections.push('')
+        sections.push(`RELATED BRAIN NODES (${nodes.length}):`)
+        for (const n of nodes) sections.push(formatBrainLine(n, connMap.get(n.id)))
+      }
+    }
   }
 
   // 2) Keyword routing.
@@ -148,26 +208,17 @@ export async function getRelevantContext(
   }
 
   if (BRAIN_KEYWORDS.some(k => msg.includes(k))) {
-    const words = (msg.match(/\b[a-z]{3,}\b/g) ?? [])
-      .filter(w => !STOPWORDS.has(w))
-    // Dedupe and cap to keep the OR query small.
-    const unique = Array.from(new Set(words)).slice(0, 8)
-    if (unique.length > 0) {
-      const orExpr = unique.map(w => `title.ilike.%${w}%`).join(',')
-      const { data } = await supabase
-        .from('brain_nodes')
-        .select('type, title, body, tags')
-        .or(orExpr)
-        .limit(15)
-      const nodes = (data ?? []) as BrainRow[]
-      if (nodes.length > 0) {
-        sections.push('')
-        sections.push(`RELEVANT BRAIN NODES (${nodes.length}):`)
-        for (const n of nodes) {
-          const body = n.body ? ` — ${n.body.length > 160 ? n.body.slice(0, 160) + '…' : n.body}` : ''
-          sections.push(`[${n.type}] "${n.title}"${body}`)
-        }
-      }
+    const { data } = await supabase
+      .from('brain_nodes')
+      .select('id, type, title, body, tags')
+      .order('updated_at', { ascending: false })
+      .limit(20)
+    const nodes = (data ?? []) as BrainNodeRow[]
+    if (nodes.length > 0) {
+      const connMap = await loadConnectionsFor(supabase, nodes.map(n => n.id))
+      sections.push('')
+      sections.push(`BRAIN GRAPH (${nodes.length} most recent):`)
+      for (const n of nodes) sections.push(formatBrainLine(n, connMap.get(n.id)))
     }
   }
 
@@ -194,7 +245,7 @@ export async function getRelevantContext(
 
   // 3) Fallback summary when nothing else fired (only the "Today:" header is present).
   if (sections.length === 1) {
-    const [contactsRes, followRes, tasksRes] = await Promise.all([
+    const [contactsRes, followRes, tasksRes, brainNodesRes, brainEdgesRes] = await Promise.all([
       supabase.from('contacts').select('id', { count: 'exact', head: true }),
       supabase
         .from('interactions')
@@ -202,12 +253,15 @@ export async function getRelevantContext(
         .eq('follow_up_needed', true)
         .neq('status', 'Done'),
       supabase.from('tasks').select('id', { count: 'exact', head: true }).eq('status', 'open'),
+      supabase.from('brain_nodes').select('id', { count: 'exact', head: true }),
+      supabase.from('brain_edges').select('id', { count: 'exact', head: true }),
     ])
     sections.push('')
     sections.push('SUMMARY:')
     sections.push(`- ${contactsRes.count ?? 0} total contacts`)
     sections.push(`- ${followRes.count ?? 0} open follow-ups`)
     sections.push(`- ${tasksRes.count ?? 0} open tasks`)
+    sections.push(`- Brain: ${brainNodesRes.count ?? 0} nodes, ${brainEdgesRes.count ?? 0} connections`)
   }
 
   return sections.join('\n')

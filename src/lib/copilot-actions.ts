@@ -467,11 +467,10 @@ async function executeCreateNode(
 ): Promise<ActionResult> {
   const title = action.title.trim()
   if (!title) return { ok: false, type: action.type, message: 'create_node: empty title' }
-  // Skip if a node with the same title and type already exists (idempotent).
+  // Skip silently if a node with the same title (any type) already exists.
   const existingRes = await client
     .from('brain_nodes')
     .select('id, title')
-    .eq('type', action.node_type)
     .ilike('title', title)
     .limit(1)
   if (!existingRes.error && existingRes.data && existingRes.data.length > 0) {
@@ -486,7 +485,7 @@ async function executeCreateNode(
   }
   const { error } = await client.from('brain_nodes').insert(insert)
   if (error) return { ok: false, type: action.type, message: `create_node: ${error.message}` }
-  return { ok: true, type: action.type, message: `Created ${action.node_type} node: ${title}` }
+  return { ok: true, type: action.type, message: `Added to brain: ${title}` }
 }
 
 async function executeCreateEdge(
@@ -515,11 +514,11 @@ async function executeCreateEdge(
   if (error) {
     // Duplicate (unique constraint) is fine — treat as success.
     if (error.code === '23505') {
-      return { ok: true, type: action.type, message: `Edge already exists: ${source.title} --[${insert.relationship}]--> ${target.title}` }
+      return { ok: true, type: action.type, message: `Connected (already): ${source.title} → ${target.title}` }
     }
     return { ok: false, type: action.type, message: `create_edge: ${error.message}` }
   }
-  return { ok: true, type: action.type, message: `Linked ${source.title} --[${insert.relationship}]--> ${target.title}` }
+  return { ok: true, type: action.type, message: `Connected: ${source.title} → ${target.title}` }
 }
 
 async function executeUpdateNode(
@@ -546,7 +545,7 @@ async function executeUpdateNode(
   }
   const { error } = await client.from('brain_nodes').update(update).eq('id', existing.id)
   if (error) return { ok: false, type: action.type, message: `update_node: ${error.message}` }
-  return { ok: true, type: action.type, message: `Updated node: ${existing.title}` }
+  return { ok: true, type: action.type, message: `Updated: ${existing.title}` }
 }
 
 export async function executeActions(
