@@ -8,6 +8,7 @@ import Modal from '@/components/Modal'
 import ContactForm from '@/components/ContactForm'
 import InteractionForm from '@/components/InteractionForm'
 import CadenceCard from '@/components/CadenceCard'
+import { TASK_SAVED_EVENT } from '@/components/QuickCaptureFab'
 import { allCategories } from '@/lib/categories'
 import type { Contact, ContactWithCadence, ContactCategory, InteractionType } from '@/types'
 
@@ -15,6 +16,7 @@ type SortOption = 'urgent' | 'recent' | 'name' | 'category'
 
 export default function Dashboard() {
   const [contacts, setContacts] = useState<ContactWithCadence[]>([])
+  const [openTaskCount, setOpenTaskCount] = useState(0)
   const [category, setCategory] = useState<ContactCategory | 'All'>('All')
   const [sortBy, setSortBy] = useState<SortOption>('urgent')
   const [showContactModal, setShowContactModal] = useState(false)
@@ -28,10 +30,19 @@ export default function Dashboard() {
   const closeContactModal = () => { if (guardClose(contactFormDirty)) setShowContactModal(false) }
   const closeInteractionModal = () => { if (guardClose(interactionFormDirty)) setShowInteractionModal(false) }
 
+  const fetchOpenTaskCount = async () => {
+    const { count } = await supabase
+      .from('tasks')
+      .select('id', { count: 'exact', head: true })
+      .eq('status', 'open')
+    setOpenTaskCount(count ?? 0)
+  }
+
   const fetchDashboard = async () => {
     const [contactsRes, interactionsRes] = await Promise.all([
       supabase.from('contacts').select('*'),
       supabase.from('interactions').select('contact_id, date, type').order('date', { ascending: false }),
+      fetchOpenTaskCount(),
     ])
 
     if (contactsRes.error || interactionsRes.error) {
@@ -63,6 +74,12 @@ export default function Dashboard() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect -- client-side Supabase fetch on mount
   useEffect(() => { fetchDashboard(); }, [])
+
+  useEffect(() => {
+    const onSaved = () => { fetchOpenTaskCount() }
+    window.addEventListener(TASK_SAVED_EVENT, onSaved)
+    return () => window.removeEventListener(TASK_SAVED_EVENT, onSaved)
+  }, [])
 
   const zoneCounts: Record<CadenceZone, number> = { green: 0, yellow: 0, red: 0 }
   for (const c of contacts) {
@@ -97,6 +114,7 @@ export default function Dashboard() {
     { label: 'Green (≤5d)', value: zoneCounts.green, colorStyle: cadenceColor(0) },
     { label: 'Yellow (6-10d)', value: zoneCounts.yellow, colorStyle: cadenceColor(8) },
     { label: 'Red (11d+)', value: zoneCounts.red, colorStyle: cadenceColor(14) },
+    { label: 'Open Tasks', value: openTaskCount, color: 'text-gold' },
   ]
 
   if (loading) return <div className="flex items-center justify-center h-64 text-text-muted">Loading...</div>
@@ -121,7 +139,7 @@ export default function Dashboard() {
       </div>
 
       {/* Summary Stats */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
         {statCards.map(card => (
           <div key={card.label} className="rounded-xl border border-border p-5 bg-dark-card border-l-2 border-l-gold/30">
             <p className="text-[11px] font-medium text-text-muted uppercase tracking-widest mb-2">{card.label}</p>

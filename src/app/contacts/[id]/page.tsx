@@ -9,7 +9,9 @@ import Modal from '@/components/Modal'
 import ContactForm from '@/components/ContactForm'
 import InteractionForm from '@/components/InteractionForm'
 import DeleteConfirmModal from '@/components/DeleteConfirmModal'
-import type { Contact, Interaction } from '@/types'
+import TaskForm from '@/components/TaskForm'
+import { TASK_SAVED_EVENT } from '@/components/QuickCaptureFab'
+import type { Contact, Interaction, Task } from '@/types'
 
 export default function ContactDetailPage() {
   const params = useParams()
@@ -18,24 +20,42 @@ export default function ContactDetailPage() {
 
   const [contact, setContact] = useState<Contact | null>(null)
   const [interactions, setInteractions] = useState<Interaction[]>([])
+  const [agenda, setAgenda] = useState<Task[]>([])
+  const [agendaError, setAgendaError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [showEditModal, setShowEditModal] = useState(false)
   const [showInteractionModal, setShowInteractionModal] = useState(false)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
+  const [showAgendaModal, setShowAgendaModal] = useState(false)
   const [editDirty, setEditDirty] = useState(false)
   const [interactionDirty, setInteractionDirty] = useState(false)
+  const [agendaDirty, setAgendaDirty] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const guard = (dirty: boolean) => !dirty || window.confirm('Discard unsaved changes?')
   const closeEdit = () => { if (guard(editDirty)) setShowEditModal(false) }
   const closeInteraction = () => { if (guard(interactionDirty)) setShowInteractionModal(false) }
+  const closeAgenda = () => { if (guard(agendaDirty)) { setAgendaDirty(false); setShowAgendaModal(false) } }
+
+  const fetchAgenda = async () => {
+    const { data, error: err } = await supabase
+      .from('tasks')
+      .select('*')
+      .eq('contact_id', id)
+      .eq('type', 'talk_about')
+      .eq('status', 'open')
+      .order('created_at', { ascending: false })
+    if (err) { setAgendaError(err.message); return }
+    setAgenda((data ?? []) as Task[])
+  }
 
   const fetchData = async () => {
     const [contactRes, interactionsRes] = await Promise.all([
       supabase.from('contacts').select('*').eq('id', id).single(),
       supabase.from('interactions').select('*').eq('contact_id', id).order('date', { ascending: false }),
+      fetchAgenda(),
     ])
     if (contactRes.error && contactRes.error.code !== 'PGRST116') {
       setError(contactRes.error.message)
@@ -52,8 +72,28 @@ export default function ContactDetailPage() {
     setLoading(false)
   }
 
-  // eslint-disable-next-line react-hooks/set-state-in-effect, react-hooks/exhaustive-deps -- client-side Supabase fetch on param change
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- client-side Supabase fetch on param change
   useEffect(() => { fetchData(); }, [id])
+
+  useEffect(() => {
+    const onSaved = () => { fetchAgenda() }
+    window.addEventListener(TASK_SAVED_EVENT, onSaved)
+    return () => window.removeEventListener(TASK_SAVED_EVENT, onSaved)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchAgenda is stable per render and only id remount matters
+  }, [id])
+
+  const markAgendaDone = async (taskId: string) => {
+    const prev = agenda
+    setAgenda(items => items.filter(t => t.id !== taskId))
+    const { error: err } = await supabase
+      .from('tasks')
+      .update({ status: 'done', completed_at: new Date().toISOString() })
+      .eq('id', taskId)
+    if (err) {
+      setAgenda(prev)
+      setAgendaError(err.message)
+    }
+  }
 
   const handleDelete = async () => {
     setDeleting(true)
@@ -128,6 +168,44 @@ export default function ContactDetailPage() {
         </div>
       </div>
 
+      {/* Open Agenda (talk-about tasks) */}
+      <div className="bg-dark-card border border-border rounded-xl">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-3">
+          <h2 className="font-semibold">Open Agenda ({agenda.length})</h2>
+          <button
+            onClick={() => setShowAgendaModal(true)}
+            className="px-3 py-1.5 rounded-lg text-xs font-medium bg-dark-elevated text-text-secondary border border-border hover:bg-surface hover:text-text-primary transition-colors"
+          >
+            + Add agenda item
+          </button>
+        </div>
+        {agendaError && (
+          <div className="mx-6 mt-3 bg-danger-dim border border-danger/30 rounded-lg px-3 py-2 text-xs text-danger flex items-center justify-between">
+            <span>{agendaError}</span>
+            <button onClick={() => setAgendaError(null)} className="underline">dismiss</button>
+          </div>
+        )}
+        {agenda.length === 0 ? (
+          <div className="px-6 py-6 text-center text-sm text-text-muted">No open agenda items.</div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {agenda.map(t => (
+              <li key={t.id} className="px-6 py-3 flex items-start gap-3">
+                <button
+                  onClick={() => markAgendaDone(t.id)}
+                  aria-label="Mark agenda item discussed"
+                  className="mt-0.5 shrink-0 w-5 h-5 rounded border border-text-muted hover:border-gold flex items-center justify-center transition-colors"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium">{t.title}</p>
+                  {t.notes && <p className="text-xs text-text-muted mt-1 whitespace-pre-line">{t.notes}</p>}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
       {/* Interaction History */}
       <div className="bg-dark-card border border-border rounded-xl">
         <div className="px-6 py-4 border-b border-border">
@@ -169,6 +247,16 @@ export default function ContactDetailPage() {
       </Modal>
       <Modal open={showInteractionModal} onClose={() => setShowInteractionModal(false)} canClose={() => guard(interactionDirty)} title="Log Interaction" wide>
         <InteractionForm preselectedContactId={id} onSaved={() => { setInteractionDirty(false); setShowInteractionModal(false); fetchData() }} onCancel={closeInteraction} onDirtyChange={setInteractionDirty} />
+      </Modal>
+      <Modal open={showAgendaModal} onClose={() => setShowAgendaModal(false)} canClose={() => guard(agendaDirty)} title="New Agenda Item">
+        <TaskForm
+          preselectedContactId={id}
+          preselectedType="talk_about"
+          lockType
+          onSaved={() => { setAgendaDirty(false); setShowAgendaModal(false); fetchAgenda() }}
+          onCancel={closeAgenda}
+          onDirtyChange={setAgendaDirty}
+        />
       </Modal>
       <DeleteConfirmModal open={showDeleteModal} onClose={() => { setShowDeleteModal(false); setDeleteError(null) }} onConfirm={handleDelete} name={contact.name} loading={deleting} error={deleteError} />
     </div>

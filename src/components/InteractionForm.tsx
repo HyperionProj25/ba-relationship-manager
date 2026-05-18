@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabase'
-import type { Contact, Interaction, InteractionType, FollowUpStatus } from '@/types'
+import { TASK_SAVED_EVENT } from '@/components/QuickCaptureFab'
+import type { Contact, Interaction, InteractionType, FollowUpStatus, Task } from '@/types'
 
 const TYPES: InteractionType[] = ['Call', 'Email', 'Meeting', 'Text', 'LinkedIn', 'In-Person']
 const STATUSES: FollowUpStatus[] = ['Pending', 'Done', 'Overdue']
@@ -32,6 +33,11 @@ export default function InteractionForm({ interaction, preselectedContactId, onS
   const [form, setForm] = useState(initial)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [sweepTasks, setSweepTasks] = useState<Task[] | null>(null)
+  const [sweepSelected, setSweepSelected] = useState<Set<string>>(new Set())
+  const [sweepContactName, setSweepContactName] = useState<string>('')
+  const [sweepSaving, setSweepSaving] = useState(false)
+  const [sweepError, setSweepError] = useState('')
 
   useEffect(() => {
     const dirty = JSON.stringify(form) !== JSON.stringify(initial)
@@ -77,10 +83,104 @@ export default function InteractionForm({ interaction, preselectedContactId, onS
     const { error: err } = await query
     setSaving(false)
     if (err) { setError(err.message); return }
+
+    // After a fresh insert (not edit), prompt to sweep this contact's open agenda items.
+    if (!interaction) {
+      const { data: openAgenda } = await supabase
+        .from('tasks')
+        .select('*')
+        .eq('contact_id', form.contact_id)
+        .eq('type', 'talk_about')
+        .eq('status', 'open')
+        .order('created_at', { ascending: false })
+      if (openAgenda && openAgenda.length > 0) {
+        const contactName = contacts.find(c => c.id === form.contact_id)?.name ?? 'this contact'
+        setSweepContactName(contactName)
+        setSweepTasks(openAgenda as Task[])
+        onDirtyChange?.(false)
+        return
+      }
+    }
+
+    onSaved()
+  }
+
+  const toggleSweep = (taskId: string) => {
+    setSweepSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(taskId)) next.delete(taskId); else next.add(taskId)
+      return next
+    })
+  }
+
+  const handleMarkDiscussed = async () => {
+    if (sweepSelected.size === 0) { onSaved(); return }
+    setSweepSaving(true)
+    setSweepError('')
+    const ids = Array.from(sweepSelected)
+    const { error: err } = await supabase
+      .from('tasks')
+      .update({ status: 'done', completed_at: new Date().toISOString() })
+      .in('id', ids)
+    setSweepSaving(false)
+    if (err) { setSweepError(err.message); return }
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(TASK_SAVED_EVENT))
+    }
     onSaved()
   }
 
   const inputClass = 'w-full bg-dark-elevated border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-muted focus:outline-none focus:border-gold focus:ring-1 focus:ring-gold transition-colors'
+
+  if (sweepTasks) {
+    return (
+      <div className="space-y-4">
+        <div>
+          <p className="text-sm font-medium text-text-primary">
+            You have {sweepTasks.length} open agenda {sweepTasks.length === 1 ? 'item' : 'items'} for {sweepContactName}.
+          </p>
+          <p className="text-sm text-text-secondary mt-1">Mark any as discussed?</p>
+        </div>
+        {sweepError && <p className="text-danger text-sm">{sweepError}</p>}
+        <ul className="space-y-2">
+          {sweepTasks.map(t => {
+            const checked = sweepSelected.has(t.id)
+            return (
+              <li key={t.id}>
+                <label className="flex items-start gap-3 bg-dark-elevated border border-border rounded-lg px-3 py-2 cursor-pointer hover:bg-surface transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleSweep(t.id)}
+                    className="mt-0.5 rounded border-border accent-gold"
+                  />
+                  <span className="text-sm">{t.title}</span>
+                </label>
+              </li>
+            )
+          })}
+        </ul>
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 sm:gap-3 pt-2">
+          <button
+            type="button"
+            onClick={() => onSaved()}
+            disabled={sweepSaving}
+            className="px-4 py-3 sm:py-2.5 rounded-lg text-sm font-medium text-text-secondary hover:text-text-primary bg-dark-elevated hover:bg-surface transition-colors disabled:opacity-50"
+          >
+            Skip
+          </button>
+          <button
+            type="button"
+            onClick={handleMarkDiscussed}
+            disabled={sweepSaving || sweepSelected.size === 0}
+            className="px-4 py-3 sm:py-2.5 rounded-lg text-sm font-medium bg-gold text-black hover:bg-gold-hover transition-colors disabled:opacity-50"
+          >
+            {sweepSaving ? 'Saving...' : `Mark ${sweepSelected.size || ''} discussed`}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">

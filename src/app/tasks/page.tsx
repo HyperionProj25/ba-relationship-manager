@@ -3,7 +3,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { supabase } from '@/lib/supabase'
+import { daysSinceDate } from '@/lib/cadence'
 import { TASK_SAVED_EVENT } from '@/components/QuickCaptureFab'
+import DeleteConfirmModal from '@/components/DeleteConfirmModal'
 import type { TaskPriority, TaskStatus, TaskType, TaskWithContact } from '@/types'
 
 const PRIORITY_RANK: Record<TaskPriority, number> = { high: 3, medium: 2, low: 1 }
@@ -34,6 +36,9 @@ export default function TasksPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [pendingDelete, setPendingDelete] = useState<TaskWithContact | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
 
   const fetchTasks = useCallback(async () => {
     const { data, error: err } = await supabase
@@ -78,6 +83,17 @@ export default function TasksPage() {
       setTasks(ts => ts.map(t => t.id === id ? prev : t))
       setActionError(err.message)
     }
+  }
+
+  const handleDelete = async () => {
+    if (!pendingDelete) return
+    setDeleting(true)
+    setDeleteError(null)
+    const { error: err } = await supabase.from('tasks').delete().eq('id', pendingDelete.id)
+    setDeleting(false)
+    if (err) { setDeleteError(err.message); return }
+    setTasks(ts => ts.filter(t => t.id !== pendingDelete.id))
+    setPendingDelete(null)
   }
 
   const filteredTasks = useMemo(() => {
@@ -134,9 +150,19 @@ export default function TasksPage() {
             empty={section.empty}
             tasks={filteredTasks.filter(t => t.type === section.type)}
             onToggle={(id, current) => setTaskStatus(id, current === 'done' ? 'open' : 'done')}
+            onDelete={(task) => setPendingDelete(task)}
           />
         ))}
       </div>
+
+      <DeleteConfirmModal
+        open={!!pendingDelete}
+        onClose={() => { setPendingDelete(null); setDeleteError(null) }}
+        onConfirm={handleDelete}
+        name={pendingDelete?.title ?? ''}
+        loading={deleting}
+        error={deleteError}
+      />
     </div>
   )
 }
@@ -147,9 +173,10 @@ interface TaskSectionProps {
   empty: string
   tasks: TaskWithContact[]
   onToggle: (id: string, current: TaskStatus) => void
+  onDelete: (task: TaskWithContact) => void
 }
 
-function TaskSection({ type, label, empty, tasks, onToggle }: TaskSectionProps) {
+function TaskSection({ type, label, empty, tasks, onToggle, onDelete }: TaskSectionProps) {
   const groupedByContact = useMemo(() => {
     if (type !== 'talk_about') return null
     const map = new Map<string, TaskWithContact[]>()
@@ -175,14 +202,14 @@ function TaskSection({ type, label, empty, tasks, onToggle }: TaskSectionProps) 
             <div key={contactName} className="space-y-2">
               <p className="text-xs text-text-secondary font-medium">{contactName}</p>
               <div className="space-y-2">
-                {items.map(t => <TaskRow key={t.id} task={t} onToggle={onToggle} />)}
+                {items.map(t => <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} />)}
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="space-y-2">
-          {tasks.map(t => <TaskRow key={t.id} task={t} onToggle={onToggle} />)}
+          {tasks.map(t => <TaskRow key={t.id} task={t} onToggle={onToggle} onDelete={onDelete} />)}
         </div>
       )}
     </section>
@@ -192,11 +219,14 @@ function TaskSection({ type, label, empty, tasks, onToggle }: TaskSectionProps) 
 interface TaskRowProps {
   task: TaskWithContact
   onToggle: (id: string, current: TaskStatus) => void
+  onDelete: (task: TaskWithContact) => void
 }
 
-function TaskRow({ task, onToggle }: TaskRowProps) {
+function TaskRow({ task, onToggle, onDelete }: TaskRowProps) {
   const done = task.status === 'done'
   const overdue = !done && task.due_date && task.due_date < new Date().toLocaleDateString('en-CA')
+  const ageDays = !done ? daysSinceDate(task.created_at) : 0
+  const stale = !done && isFinite(ageDays) && ageDays > 7
   return (
     <div className={`bg-dark-card border rounded-xl px-4 py-3 flex items-start gap-3 transition-opacity ${done ? 'opacity-60' : ''} ${overdue ? 'border-danger/40 border-l-2 border-l-danger' : 'border-border border-l-2 border-l-gold/30'}`}>
       <button
@@ -231,11 +261,21 @@ function TaskRow({ task, onToggle }: TaskRowProps) {
           {task.completed_at && done && (
             <span className="text-xs text-text-muted">Done {new Date(task.completed_at).toLocaleDateString('en-CA')}</span>
           )}
+          {stale && (
+            <span className="text-xs text-text-muted">{ageDays}d old</span>
+          )}
         </div>
         {task.notes && (
           <p className="text-xs text-text-muted mt-1 whitespace-pre-line">{task.notes}</p>
         )}
       </div>
+      <button
+        onClick={() => onDelete(task)}
+        aria-label="Delete task"
+        className="shrink-0 text-text-muted hover:text-danger transition-colors text-lg leading-none w-7 h-7 flex items-center justify-center -mr-1"
+      >
+        ×
+      </button>
     </div>
   )
 }
